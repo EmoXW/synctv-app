@@ -1,12 +1,31 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id("com.android.application")
-    id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    // The Flutter Gradle Plugin must be applied after the Android Gradle plugin.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val releaseSigningValues = mapOf(
+    "storeFile" to System.getenv("SYNCTV_ANDROID_KEYSTORE_PATH"),
+    "storePassword" to System.getenv("SYNCTV_ANDROID_KEYSTORE_PASSWORD"),
+    "keyAlias" to System.getenv("SYNCTV_ANDROID_KEY_ALIAS"),
+    "keyPassword" to System.getenv("SYNCTV_ANDROID_KEY_PASSWORD"),
+)
+val configuredReleaseSigningValues = releaseSigningValues.filterValues { !it.isNullOrBlank() }
+if (
+    configuredReleaseSigningValues.isNotEmpty() &&
+    configuredReleaseSigningValues.size != releaseSigningValues.size
+) {
+    throw GradleException(
+        "Android release signing requires keystore path, store password, key alias, and key password"
+    )
+}
+val releaseSigningConfigured =
+    configuredReleaseSigningValues.size == releaseSigningValues.size
+
 android {
-    namespace = "lhht.synctv"
+    namespace = "org.synctv.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -15,27 +34,39 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
-    }
-
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "lhht.synctv"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        applicationId = "org.synctv.app"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = file(releaseSigningValues.getValue("storeFile")!!)
+                storePassword = releaseSigningValues.getValue("storePassword")
+                keyAlias = releaseSigningValues.getValue("keyAlias")
+                keyPassword = releaseSigningValues.getValue("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Local and fork builds remain installable and are labeled as development
+            // artifacts by CI. Official releases inject a stable release keystore.
+            signingConfig = signingConfigs.getByName(
+                if (releaseSigningConfigured) "release" else "debug"
+            )
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 

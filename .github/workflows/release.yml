@@ -1,0 +1,1075 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      publish_google_play:
+        description: Upload the signed Android App Bundle to Google Play
+        required: true
+        type: boolean
+        default: false
+      google_play_track:
+        description: Google Play release track
+        required: true
+        type: choice
+        default: internal
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+      google_play_release_status:
+        description: Google Play release status
+        required: true
+        type: choice
+        default: draft
+        options:
+          - draft
+          - completed
+          - inProgress
+          - halted
+      publish_ios_app_store:
+        description: Upload the signed iOS IPA to App Store Connect
+        required: true
+        type: boolean
+        default: false
+      publish_macos_app_store:
+        description: Build and upload the signed Mac App Store package
+        required: true
+        type: boolean
+        default: false
+      submit_app_store_review:
+        description: Submit the uploaded iOS version for App Review
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: "3.44.8"
+  NODE_VERSION: "24"
+  RUST_VERSION: "1.97.1"
+  SYNCTV_BUILT_IN_SERVER_URL: ${{ vars.SYNCTV_BUILT_IN_SERVER_URL }}
+  SYNCTV_STORE_BUILT_IN_SERVER_URL: ${{ vars.SYNCTV_STORE_BUILT_IN_SERVER_URL || '' }}
+  SYNCTV_PASSKEY_RP_IDS: ${{ vars.SYNCTV_PASSKEY_RP_IDS }}
+  SYNCTV_OAUTH2_APP_LINK_ORIGIN: ${{ vars.SYNCTV_OAUTH2_APP_LINK_ORIGIN }}
+  SYNCTV_GOOGLE_PLAY_APP_SIGNING_SHA256: ${{ vars.SYNCTV_GOOGLE_PLAY_APP_SIGNING_SHA256 }}
+
+jobs:
+  quality:
+    name: Quality gate
+    uses: ./.github/workflows/ci.yml
+    with:
+      native-build-mode: skip
+
+  metadata:
+    name: Validate release metadata
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build-number: ${{ steps.version.outputs.build-number }}
+      artifact-version: ${{ steps.version.outputs.artifact-version }}
+      stable: ${{ steps.version.outputs.stable }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Read and validate pubspec version
+        id: version
+        shell: bash
+        env:
+          PUBLISH_GOOGLE_PLAY: ${{ inputs.publish_google_play || false }}
+          PUBLISH_IOS_APP_STORE: ${{ inputs.publish_ios_app_store || false }}
+          PUBLISH_MACOS_APP_STORE: ${{ inputs.publish_macos_app_store || false }}
+        run: |
+          raw_version="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n 1)"
+          raw_version="${raw_version%$'\r'}"
+          if [[ ! "$raw_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?\+[1-9][0-9]*$ ]]; then
+            echo "Invalid pubspec version: $raw_version" >&2
+            exit 1
+          fi
+
+          version="${raw_version%%+*}"
+          build_number="${raw_version##*+}"
+          if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            stable=true
+          else
+            stable=false
+          fi
+
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [[ "$tag_version" != "$version" ]]; then
+              echo "Tag $GITHUB_REF_NAME must match pubspec version $version" >&2
+              exit 1
+            fi
+          fi
+
+          if [[ "$PUBLISH_GOOGLE_PLAY" == "true" ||
+                "$PUBLISH_IOS_APP_STORE" == "true" ||
+                "$PUBLISH_MACOS_APP_STORE" == "true" ]]; then
+            if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then
+              echo "Store publication must be dispatched from a version tag" >&2
+              exit 1
+            fi
+            if [[ "$stable" != "true" ]]; then
+              echo "Store publication requires a stable x.y.z version" >&2
+              exit 1
+            fi
+          fi
+
+          {
+            echo "version=$version"
+            echo "build-number=$build_number"
+            echo "artifact-version=$version+$build_number"
+            echo "stable=$stable"
+          } >> "$GITHUB_OUTPUT"
+
+  android:
+    name: Android APKs
+    needs: metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up build toolchain
+        uses: ./.github/actions/setup-build
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          rust-version: ${{ env.RUST_VERSION }}
+          rust-targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Configure Android release signing
+        id: signing
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.SYNCTV_ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.SYNCTV_ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SYNCTV_ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.SYNCTV_ANDROID_KEY_PASSWORD }}
+        run: |
+          values=("$KEYSTORE_BASE64" "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD")
+          configured=0
+          for value in "${values[@]}"; do
+            [[ -n "$value" ]] && configured=$((configured + 1))
+          done
+          if [[ "$configured" -eq 0 ]]; then
+            echo "SYNCTV_ANDROID_SIGNING_LABEL=development" >> "$GITHUB_ENV"
+            echo "mode=development" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$configured" -ne "${#values[@]}" ]]; then
+            echo "Android release signing secrets are incomplete" >&2
+            exit 1
+          fi
+          keystore="$RUNNER_TEMP/synctv-release.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          {
+            echo "SYNCTV_ANDROID_KEYSTORE_PATH=$keystore"
+            echo "SYNCTV_ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+            echo "SYNCTV_ANDROID_KEY_ALIAS=$KEY_ALIAS"
+            echo "SYNCTV_ANDROID_KEY_PASSWORD=$KEY_PASSWORD"
+            echo "SYNCTV_ANDROID_SIGNING_LABEL=signed"
+          } >> "$GITHUB_ENV"
+          keytool -list -keystore "$keystore" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
+          certificate="$RUNNER_TEMP/synctv-release.cer"
+          keytool -exportcert \
+            -keystore "$keystore" \
+            -storepass "$KEYSTORE_PASSWORD" \
+            -alias "$KEY_ALIAS" \
+            -file "$certificate"
+          certificate_sha256="$(
+            openssl x509 -inform DER -in "$certificate" -noout -fingerprint -sha256 \
+              | sed 's/^[^=]*=//'
+          )"
+          if [[ ! "$certificate_sha256" =~ ^([0-9A-F]{2}:){31}[0-9A-F]{2}$ ]]; then
+            echo "Failed to extract the Android release certificate SHA-256 fingerprint" >&2
+            exit 1
+          fi
+          echo "SYNCTV_ANDROID_CERTIFICATE_SHA256=$certificate_sha256" >> "$GITHUB_ENV"
+          echo "mode=signed" >> "$GITHUB_OUTPUT"
+
+      - name: Build split release APKs
+        run: |
+          flutter build apk \
+            --release \
+            --no-pub \
+            --dart-define "SYNCTV_BUILT_IN_SERVER_URL=$SYNCTV_BUILT_IN_SERVER_URL" \
+            --dart-define "SYNCTV_PASSKEY_RP_IDS=$SYNCTV_PASSKEY_RP_IDS" \
+            --dart-define "SYNCTV_OAUTH2_APP_LINK_ORIGIN=$SYNCTV_OAUTH2_APP_LINK_ORIGIN" \
+            --build-name "${{ needs.metadata.outputs.version }}" \
+            --build-number "${{ needs.metadata.outputs.build-number }}" \
+            --split-debug-info build/symbols/android-all
+          flutter build apk \
+            --release \
+            --no-pub \
+            --split-per-abi \
+            --dart-define "SYNCTV_BUILT_IN_SERVER_URL=$SYNCTV_BUILT_IN_SERVER_URL" \
+            --dart-define "SYNCTV_PASSKEY_RP_IDS=$SYNCTV_PASSKEY_RP_IDS" \
+            --dart-define "SYNCTV_OAUTH2_APP_LINK_ORIGIN=$SYNCTV_OAUTH2_APP_LINK_ORIGIN" \
+            --build-name "${{ needs.metadata.outputs.version }}" \
+            --build-number "${{ needs.metadata.outputs.build-number }}" \
+            --split-debug-info build/symbols/android-all
+
+      - name: Build release Android App Bundle
+        run: >-
+          flutter build appbundle
+          --release
+          --no-pub
+          --dart-define "SYNCTV_BUILT_IN_SERVER_URL=$SYNCTV_BUILT_IN_SERVER_URL"
+          --dart-define "SYNCTV_PASSKEY_RP_IDS=$SYNCTV_PASSKEY_RP_IDS"
+          --dart-define "SYNCTV_OAUTH2_APP_LINK_ORIGIN=$SYNCTV_OAUTH2_APP_LINK_ORIGIN"
+          --build-name "${{ needs.metadata.outputs.version }}"
+          --build-number "${{ needs.metadata.outputs.build-number }}"
+          --split-debug-info build/symbols/android-all
+
+      - name: Verify Android manifest and launcher icon
+        run: >-
+          bash tool/ci/verify_android_artifact.sh
+          build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+
+      - name: Package Android artifacts
+        run: bash tool/ci/package_release.sh android all "${{ needs.metadata.outputs.artifact-version }}" dist
+
+      - name: Validate Google Play signing
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_google_play
+        env:
+          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
+        run: |
+          if [[ "$SIGNING_MODE" != "signed" ]]; then
+            echo "Google Play publication requires Android release signing" >&2
+            exit 1
+          fi
+
+      - name: Build Google Play App Bundle
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_google_play
+        run: >-
+          flutter build appbundle
+          --release
+          --no-pub
+          --dart-define "SYNCTV_BUILT_IN_SERVER_URL=$SYNCTV_STORE_BUILT_IN_SERVER_URL"
+          --dart-define "SYNCTV_PASSKEY_RP_IDS=$SYNCTV_PASSKEY_RP_IDS"
+          --dart-define "SYNCTV_OAUTH2_APP_LINK_ORIGIN=$SYNCTV_OAUTH2_APP_LINK_ORIGIN"
+          --build-name "${{ needs.metadata.outputs.version }}"
+          --build-number "${{ needs.metadata.outputs.build-number }}"
+          --split-debug-info build/symbols/android-google-play
+
+      - name: Package Google Play App Bundle
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_google_play
+        run: |
+          install -d store-dist
+          install -m 0644 \
+            build/app/outputs/bundle/release/app-release.aab \
+            "store-dist/SyncTV-${{ needs.metadata.outputs.artifact-version }}-android-google-play.aab"
+
+      - name: Upload Google Play artifact
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_google_play
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: store-android-google-play
+          path: store-dist/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Publish self-hosted Passkey configuration
+        if: steps.signing.outputs.mode == 'signed'
+        shell: bash
+        run: |
+          output="dist/SyncTV-${{ needs.metadata.outputs.artifact-version }}-android-passkey-server-config.yaml"
+          bash tool/ci/generate_android_passkey_server_config.sh \
+            org.synctv.app \
+            "$SYNCTV_ANDROID_CERTIFICATE_SHA256" \
+            "$SYNCTV_GOOGLE_PLAY_APP_SIGNING_SHA256" \
+            "$output"
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-android
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  linux:
+    name: Linux ${{ matrix.architecture }}
+    needs: metadata
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            runner: ubuntu-24.04
+            flutter-architecture: x64
+            flutter-target: linux-x64
+            rust-target: x86_64-unknown-linux-gnu
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+            flutter-architecture: arm64
+            flutter-target: linux-arm64
+            rust-target: aarch64-unknown-linux-gnu
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Linux build dependencies
+        run: bash tool/ci/install_linux_build_dependencies.sh
+
+      - name: Set up build toolchain
+        uses: ./.github/actions/setup-build
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          flutter-architecture: ${{ matrix.flutter-architecture }}
+          rust-version: ${{ env.RUST_VERSION }}
+          rust-targets: ${{ matrix.rust-target }}
+
+      - name: Build Linux release
+        run: >-
+          flutter build linux
+          --release
+          --no-pub
+          --target-platform "${{ matrix.flutter-target }}"
+          --dart-define "SYNCTV_BUILT_IN_SERVER_URL=$SYNCTV_BUILT_IN_SERVER_URL"
+          --dart-define "SYNCTV_PASSKEY_RP_IDS=$SYNCTV_PASSKEY_RP_IDS"
+          --build-name "${{ needs.metadata.outputs.version }}"
+          --build-number "${{ needs.metadata.outputs.build-number }}"
+          --split-debug-info "build/symbols/linux-${{ matrix.architecture }}"
+
+      - name: Strip Linux native binaries
+        run: bash tool/ci/strip_linux_release.sh
+
+      - name: Package Linux artifact
+        run: bash tool/ci/package_release.sh linux "${{ matrix.architecture }}" "${{ needs.metadata.outputs.artifact-version }}" dist
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-linux-${{ matrix.architecture }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  windows:
+    name: Windows x64
+    needs: metadata
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Enable long paths
+        shell: pwsh
+        run: git config --system core.longpaths true
+
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up build toolchain
+        uses: ./.github/actions/setup-build
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          flutter-architecture: x64
+          rust-version: ${{ env.RUST_VERSION }}
+          rust-targets: x86_64-pc-windows-msvc
+
+      - name: Build Windows release
+        shell: pwsh
+        run: >-
+          flutter build windows
+          --release
+          --no-pub
+          --dart-define "SYNCTV_BUILT_IN_SERVER_URL=$env:SYNCTV_BUILT_IN_SERVER_URL"
+          --dart-define "SYNCTV_PASSKEY_RP_IDS=$env:SYNCTV_PASSKEY_RP_IDS"
+          --build-name "${{ needs.metadata.outputs.version }}"
+          --build-number "${{ needs.metadata.outputs.build-number }}"
+          --split-debug-info build/symbols/windows-x64
+
+      - name: Verify Windows binary architecture
+        shell: pwsh
+        run: >-
+          ./tool/ci/verify_windows_architecture.ps1
+          -Architecture x64
+
+      - name: Sign Windows application bundle
+        id: signing
+        shell: pwsh
+        env:
+          SYNCTV_WINDOWS_CERTIFICATE_BASE64: ${{ secrets.SYNCTV_WINDOWS_CERTIFICATE_BASE64 }}
+          SYNCTV_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.SYNCTV_WINDOWS_CERTIFICATE_PASSWORD }}
+          SYNCTV_WINDOWS_TIMESTAMP_URL: ${{ vars.SYNCTV_WINDOWS_TIMESTAMP_URL }}
+        run: |
+          $bundle = Get-ChildItem -Path build/windows -Directory -Recurse |
+            Where-Object { $_.FullName -match '[\\/]runner[\\/]Release$' } |
+            Select-Object -First 1
+          if ($null -eq $bundle) {
+            throw 'Windows release bundle was not found.'
+          }
+          $artifacts = @(
+            Get-ChildItem -Path $bundle.FullName -File -Recurse |
+              Where-Object { $_.Extension -in '.exe', '.dll' }
+          )
+          if ($artifacts.Count -eq 0) {
+            throw 'Windows release bundle contains no executable artifacts.'
+          }
+          ./tool/ci/sign_windows_artifacts.ps1 -Path $artifacts.FullName
+
+      - name: Package Windows artifact
+        shell: pwsh
+        run: >-
+          ./tool/ci/package_release.ps1
+          -Version "${{ needs.metadata.outputs.artifact-version }}"
+          -Architecture x64
+          -OutputDirectory dist
+          -RepositoryUrl "${{ github.server_url }}/${{ github.repository }}"
+
+      - name: Sign Windows installer
+        if: steps.signing.outputs.mode == 'signed'
+        shell: pwsh
+        env:
+          SYNCTV_WINDOWS_CERTIFICATE_BASE64: ${{ secrets.SYNCTV_WINDOWS_CERTIFICATE_BASE64 }}
+          SYNCTV_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.SYNCTV_WINDOWS_CERTIFICATE_PASSWORD }}
+          SYNCTV_WINDOWS_TIMESTAMP_URL: ${{ vars.SYNCTV_WINDOWS_TIMESTAMP_URL }}
+        run: >-
+          ./tool/ci/sign_windows_artifacts.ps1
+          -Path "dist/SyncTV-${{ needs.metadata.outputs.artifact-version }}-windows-x64-setup.exe"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-windows-x64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  macos:
+    name: macOS universal
+    needs: metadata
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up build toolchain
+        uses: ./.github/actions/setup-build
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          flutter-architecture: arm64
+          rust-version: ${{ env.RUST_VERSION }}
+          rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Set up Node.js for macOS packaging
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install macOS packaging dependencies
+        run: npm ci --prefix tool/ci/macos-dmg
+
+      - name: Configure macOS release signing
+        id: signing
+        env:
+          SYNCTV_APPLE_CERTIFICATE_BASE64: ${{ secrets.SYNCTV_MACOS_DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          SYNCTV_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.SYNCTV_MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          SYNCTV_APPLE_DEVELOPMENT_TEAM: ${{ vars.SYNCTV_APPLE_DEVELOPMENT_TEAM }}
+          SYNCTV_APPLE_SIGNING_IDENTITY: ${{ vars.SYNCTV_MACOS_SIGNING_IDENTITY }}
+          SYNCTV_APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.SYNCTV_MACOS_DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 }}
+        run: bash tool/ci/configure_apple_signing.sh macos macos/Flutter/Signing.xcconfig
+
+      - name: Build macOS release
+        run: >-
+          flutter build macos
+          --release
+          --no-pub
+          --dart-define "SYNCTV_BUILT_IN_SERVER_URL=$SYNCTV_BUILT_IN_SERVER_URL"
+          --dart-define "SYNCTV_PASSKEY_RP_IDS=$SYNCTV_PASSKEY_RP_IDS"
+          --dart-define "SYNCTV_OAUTH2_APP_LINK_ORIGIN=$SYNCTV_OAUTH2_APP_LINK_ORIGIN"
+          --build-name "${{ needs.metadata.outputs.version }}"
+          --build-number "${{ needs.metadata.outputs.build-number }}"
+          --split-debug-info build/symbols/macos-universal
+
+      - name: Verify universal macOS binaries
+        run: >-
+          bash tool/ci/verify_macos_architecture.sh
+          build/macos/Build/Products/Release/SyncTV.app
+          universal
+
+      - name: Create architecture-specific macOS apps
+        run: bash tool/ci/create_macos_architecture_apps.sh
+
+      - name: Verify architecture-specific macOS binaries
+        run: |
+          bash tool/ci/verify_macos_architecture.sh \
+            build/macos/Build/Products/Release/arm64/SyncTV.app arm64
+          bash tool/ci/verify_macos_architecture.sh \
+            build/macos/Build/Products/Release/x64/SyncTV.app x64
+
+      - name: Verify macOS signatures and authentication entitlements
+        env:
+          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
+        run: |
+          rp_ids=""
+          oauth2_origin=""
+          if [[ "$SIGNING_MODE" == "signed" ]]; then
+            rp_ids="$SYNCTV_PASSKEY_RP_IDS"
+            oauth2_origin="$SYNCTV_OAUTH2_APP_LINK_ORIGIN"
+          fi
+          for app in \
+            build/macos/Build/Products/Release/SyncTV.app \
+            build/macos/Build/Products/Release/arm64/SyncTV.app \
+            build/macos/Build/Products/Release/x64/SyncTV.app; do
+            bash tool/ci/verify_apple_entitlements.sh \
+              "$app" "$rp_ids" "$oauth2_origin"
+            if [[ "$SIGNING_MODE" == "signed" ]]; then
+              bash tool/ci/verify_macos_distribution_signature.sh "$app"
+            fi
+          done
+
+      - name: Notarize and staple macOS apps
+        if: steps.signing.outputs.mode == 'signed'
+        env:
+          NOTARY_KEY_ID: ${{ secrets.SYNCTV_APP_STORE_CONNECT_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.SYNCTV_APP_STORE_CONNECT_ISSUER_ID }}
+          NOTARY_PRIVATE_KEY_BASE64: ${{ secrets.SYNCTV_APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+        run: |
+          values=("$NOTARY_KEY_ID" "$NOTARY_ISSUER_ID" "$NOTARY_PRIVATE_KEY_BASE64")
+          for value in "${values[@]}"; do
+            if [[ -z "$value" ]]; then
+              echo "App Store Connect API credentials are required for signed macOS releases" >&2
+              exit 1
+            fi
+          done
+
+          notary_key="$RUNNER_TEMP/AuthKey_$NOTARY_KEY_ID.p8"
+          if ! printf '%s' "$NOTARY_PRIVATE_KEY_BASE64" | base64 --decode > "$notary_key" 2>/dev/null; then
+            printf '%s' "$NOTARY_PRIVATE_KEY_BASE64" | base64 -D > "$notary_key"
+          fi
+          chmod 600 "$notary_key"
+
+          for app in \
+            build/macos/Build/Products/Release/SyncTV.app \
+            build/macos/Build/Products/Release/arm64/SyncTV.app \
+            build/macos/Build/Products/Release/x64/SyncTV.app; do
+            archive="$RUNNER_TEMP/$(basename "$(dirname "$app")")-SyncTV.zip"
+            ditto -c -k --sequesterRsrc --keepParent "$app" "$archive"
+            xcrun notarytool submit "$archive" \
+              --key "$notary_key" \
+              --key-id "$NOTARY_KEY_ID" \
+              --issuer "$NOTARY_ISSUER_ID" \
+              --wait
+            xcrun stapler staple "$app"
+            xcrun stapler validate "$app"
+          done
+
+      - name: Package macOS artifacts
+        run: |
+          bash tool/ci/package_release.sh macos universal \
+            "${{ needs.metadata.outputs.artifact-version }}" dist/universal
+          bash tool/ci/package_release.sh macos arm64 \
+            "${{ needs.metadata.outputs.artifact-version }}" dist/arm64
+          bash tool/ci/package_release.sh macos x64 \
+            "${{ needs.metadata.outputs.artifact-version }}" dist/x64
+
+      - name: Notarize and staple macOS disk images
+        if: steps.signing.outputs.mode == 'signed'
+        env:
+          NOTARY_KEY_ID: ${{ secrets.SYNCTV_APP_STORE_CONNECT_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.SYNCTV_APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          notary_key="$RUNNER_TEMP/AuthKey_$NOTARY_KEY_ID.p8"
+          if [[ ! -f "$notary_key" ]]; then
+            echo "App Store Connect API key was not prepared" >&2
+            exit 1
+          fi
+          dmg_count=0
+          while IFS= read -r dmg; do
+            dmg_count=$((dmg_count + 1))
+            xcrun notarytool submit "$dmg" \
+              --key "$notary_key" \
+              --key-id "$NOTARY_KEY_ID" \
+              --issuer "$NOTARY_ISSUER_ID" \
+              --wait
+            xcrun stapler staple "$dmg"
+            xcrun stapler validate "$dmg"
+          done < <(find dist -type f -name '*.dmg' -print)
+          if [[ "$dmg_count" -ne 3 ]]; then
+            echo "Expected 3 macOS disk images, found $dmg_count" >&2
+            exit 1
+          fi
+
+      - name: Upload universal macOS artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-macos-universal
+          path: dist/universal/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload arm64 macOS artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-macos-arm64
+          path: dist/arm64/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload x64 macOS artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-macos-x64
+          path: dist/x64/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  ios:
+    name: iOS
+    needs: metadata
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up build toolchain
+        uses: ./.github/actions/setup-build
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          flutter-architecture: arm64
+          rust-version: ${{ env.RUST_VERSION }}
+          rust-targets: aarch64-apple-ios
+
+      - name: Verify iOS App Store icons
+        run: bash tool/ci/verify_apple_app_icon.sh
+
+      - name: Configure iOS release signing
+        id: signing
+        env:
+          SYNCTV_APPLE_CERTIFICATE_BASE64: ${{ secrets.SYNCTV_APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          SYNCTV_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.SYNCTV_APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          SYNCTV_APPLE_DEVELOPMENT_TEAM: ${{ vars.SYNCTV_APPLE_DEVELOPMENT_TEAM }}
+          SYNCTV_APPLE_SIGNING_IDENTITY: ${{ vars.SYNCTV_IOS_SIGNING_IDENTITY }}
+          SYNCTV_APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.SYNCTV_IOS_APP_STORE_PROVISIONING_PROFILE_BASE64 }}
+        run: bash tool/ci/configure_apple_signing.sh ios ios/Flutter/Signing.xcconfig
+
+      - name: Build iOS release
+        env:
+          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
+        run: |
+          build_args=(
+            --release
+            --no-pub
+            --dart-define "SYNCTV_BUILT_IN_SERVER_URL=$SYNCTV_BUILT_IN_SERVER_URL"
+            --dart-define "SYNCTV_PASSKEY_RP_IDS=$SYNCTV_PASSKEY_RP_IDS"
+            --dart-define "SYNCTV_OAUTH2_APP_LINK_ORIGIN=$SYNCTV_OAUTH2_APP_LINK_ORIGIN"
+            --build-name "${{ needs.metadata.outputs.version }}"
+            --build-number "${{ needs.metadata.outputs.build-number }}"
+            --split-debug-info build/symbols/ios-arm64
+          )
+          if [[ "$SIGNING_MODE" == "signed" ]]; then
+            flutter build ipa \
+              "${build_args[@]}" \
+              --export-options-plist "$SYNCTV_IOS_EXPORT_OPTIONS_PLIST"
+          else
+            flutter build ios "${build_args[@]}" --no-codesign
+          fi
+
+      - name: Verify iOS private API usage
+        run: |
+          ipa="$(find build/ios/ipa -maxdepth 1 -type f -name '*.ipa' -print -quit)"
+          if [[ -n "$ipa" ]]; then
+            artifact="$ipa"
+          else
+            artifact="build/ios/iphoneos/Runner.app"
+          fi
+          bash tool/ci/verify_apple_private_apis.sh "$artifact"
+
+      - name: Verify iOS signature and authentication entitlements
+        if: steps.signing.outputs.mode == 'signed'
+        run: |
+          bash tool/ci/verify_apple_entitlements.sh \
+            build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app \
+            "$SYNCTV_PASSKEY_RP_IDS" \
+            "$SYNCTV_OAUTH2_APP_LINK_ORIGIN"
+
+      - name: Package iOS artifact
+        env:
+          SYNCTV_IOS_SIGNED: ${{ steps.signing.outputs.mode == 'signed' && '1' || '0' }}
+        run: bash tool/ci/package_release.sh ios arm64 "${{ needs.metadata.outputs.artifact-version }}" dist
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-ios-${{ steps.signing.outputs.mode }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Validate iOS App Store signing
+        if: >-
+          (github.event_name == 'push' &&
+          github.ref_type == 'tag' &&
+          needs.metadata.outputs.stable == 'true' &&
+          vars.SYNCTV_PUBLISH_APP_STORE_ON_TAG == 'true') ||
+          (github.event_name == 'workflow_dispatch' && inputs.publish_ios_app_store)
+        env:
+          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
+        run: |
+          if [[ "$SIGNING_MODE" != "signed" ]]; then
+            echo "iOS App Store publication requires Apple distribution signing" >&2
+            exit 1
+          fi
+
+      - name: Build iOS App Store release
+        if: >-
+          steps.signing.outputs.mode == 'signed' &&
+          ((github.event_name == 'push' &&
+          github.ref_type == 'tag' &&
+          needs.metadata.outputs.stable == 'true' &&
+          vars.SYNCTV_PUBLISH_APP_STORE_ON_TAG == 'true') ||
+          (github.event_name == 'workflow_dispatch' && inputs.publish_ios_app_store))
+        run: |
+          flutter build ipa \
+            --release \
+            --no-pub \
+            --dart-define "SYNCTV_BUILT_IN_SERVER_URL=$SYNCTV_STORE_BUILT_IN_SERVER_URL" \
+            --dart-define "SYNCTV_PASSKEY_RP_IDS=$SYNCTV_PASSKEY_RP_IDS" \
+            --dart-define "SYNCTV_OAUTH2_APP_LINK_ORIGIN=$SYNCTV_OAUTH2_APP_LINK_ORIGIN" \
+            --dart-define "SYNCTV_INCLUDE_THIRD_PARTY_PROVIDERS=false" \
+            --build-name "${{ needs.metadata.outputs.version }}" \
+            --build-number "${{ needs.metadata.outputs.build-number }}" \
+            --split-debug-info build/symbols/ios-app-store \
+            --export-options-plist "$SYNCTV_IOS_EXPORT_OPTIONS_PLIST"
+          bash tool/ci/verify_apple_entitlements.sh \
+            build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app \
+            "$SYNCTV_PASSKEY_RP_IDS" \
+            "$SYNCTV_OAUTH2_APP_LINK_ORIGIN"
+          ipa="$(find build/ios/ipa -maxdepth 1 -type f -name '*.ipa' -print -quit)"
+          if [[ -z "$ipa" ]]; then
+            echo "The App Store IPA was not generated" >&2
+            exit 1
+          fi
+          bash tool/ci/verify_apple_private_apis.sh "$ipa"
+          install -d store-dist
+          install -m 0644 "$ipa" \
+            "store-dist/SyncTV-${{ needs.metadata.outputs.artifact-version }}-ios-app-store.ipa"
+
+      - name: Upload iOS App Store artifact
+        if: >-
+          steps.signing.outputs.mode == 'signed' &&
+          ((github.event_name == 'push' &&
+          github.ref_type == 'tag' &&
+          needs.metadata.outputs.stable == 'true' &&
+          vars.SYNCTV_PUBLISH_APP_STORE_ON_TAG == 'true') ||
+          (github.event_name == 'workflow_dispatch' && inputs.publish_ios_app_store))
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: store-ios-app-store
+          path: store-dist/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  google-play:
+    name: Publish Google Play
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_google_play
+    needs: [metadata, android]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: google-play
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Ruby and Fastlane
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+
+      - name: Download Google Play artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: store-android-google-play
+          path: dist
+
+      - name: Upload Android App Bundle
+        env:
+          SYNCTV_GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.SYNCTV_GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          SYNCTV_GOOGLE_PLAY_TRACK: ${{ inputs.google_play_track }}
+          SYNCTV_GOOGLE_PLAY_RELEASE_STATUS: ${{ inputs.google_play_release_status }}
+        run: |
+          aab="$(find dist -maxdepth 1 -type f -name 'SyncTV-*-android-google-play.aab' -print -quit)"
+          if [[ -z "$aab" ]]; then
+            echo "A signed Android App Bundle is required for Google Play" >&2
+            exit 1
+          fi
+          bundle exec fastlane android google_play aab:"$aab"
+
+  app-store:
+    name: Publish iOS App Store
+    if: >-
+      (github.event_name == 'push' &&
+      github.ref_type == 'tag' &&
+      needs.metadata.outputs.stable == 'true' &&
+      vars.SYNCTV_PUBLISH_APP_STORE_ON_TAG == 'true') ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_ios_app_store)
+    needs: [metadata, ios]
+    runs-on: macos-26
+    timeout-minutes: 30
+    environment: app-store
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Ruby and Fastlane
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+
+      - name: Download iOS App Store artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: store-ios-app-store
+          path: dist
+
+      - name: Upload iOS app
+        env:
+          SYNCTV_APP_STORE_CONNECT_KEY_ID: ${{ secrets.SYNCTV_APP_STORE_CONNECT_KEY_ID }}
+          SYNCTV_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.SYNCTV_APP_STORE_CONNECT_ISSUER_ID }}
+          SYNCTV_APP_STORE_CONNECT_PRIVATE_KEY_BASE64: ${{ secrets.SYNCTV_APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+          SYNCTV_APP_STORE_SUBMIT_FOR_REVIEW: ${{ inputs.submit_app_store_review }}
+          SYNCTV_RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          ipa="$(find dist -maxdepth 1 -type f -name 'SyncTV-*-ios-app-store.ipa' -print -quit)"
+          if [[ -z "$ipa" ]]; then
+            echo "A signed App Store IPA is required for App Store Connect" >&2
+            exit 1
+          fi
+          bundle exec fastlane ios app_store ipa:"$ipa"
+
+  mac-app-store:
+    name: Publish Mac App Store
+    if: >-
+      (github.event_name == 'push' &&
+      github.ref_type == 'tag' &&
+      needs.metadata.outputs.stable == 'true' &&
+      vars.SYNCTV_PUBLISH_APP_STORE_ON_TAG == 'true') ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_macos_app_store)
+    needs: metadata
+    runs-on: macos-26
+    timeout-minutes: 50
+    environment: app-store
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up build toolchain
+        uses: ./.github/actions/setup-build
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          flutter-architecture: arm64
+          rust-version: ${{ env.RUST_VERSION }}
+          rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Configure Mac App Store signing
+        id: signing
+        env:
+          SYNCTV_APPLE_CERTIFICATE_BASE64: ${{ secrets.SYNCTV_APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          SYNCTV_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.SYNCTV_APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          SYNCTV_APPLE_ADDITIONAL_CERTIFICATE_BASE64: ${{ secrets.SYNCTV_MACOS_INSTALLER_CERTIFICATE_BASE64 }}
+          SYNCTV_APPLE_ADDITIONAL_CERTIFICATE_PASSWORD: ${{ secrets.SYNCTV_MACOS_INSTALLER_CERTIFICATE_PASSWORD }}
+          SYNCTV_APPLE_DEVELOPMENT_TEAM: ${{ vars.SYNCTV_APPLE_DEVELOPMENT_TEAM }}
+          SYNCTV_APPLE_SIGNING_IDENTITY: ${{ vars.SYNCTV_MACOS_APP_STORE_SIGNING_IDENTITY }}
+          SYNCTV_APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.SYNCTV_MACOS_APP_STORE_PROVISIONING_PROFILE_BASE64 }}
+        run: bash tool/ci/configure_apple_signing.sh macos macos/Flutter/Signing.xcconfig
+
+      - name: Validate Mac App Store signing
+        env:
+          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
+        run: |
+          if [[ "$SIGNING_MODE" != "signed" ]]; then
+            echo "Mac App Store signing configuration is required" >&2
+            exit 1
+          fi
+
+      - name: Build Mac App Store release
+        run: >-
+          flutter build macos
+          --release
+          --no-pub
+          --dart-define "SYNCTV_BUILT_IN_SERVER_URL=$SYNCTV_STORE_BUILT_IN_SERVER_URL"
+          --dart-define "SYNCTV_PASSKEY_RP_IDS=$SYNCTV_PASSKEY_RP_IDS"
+          --dart-define "SYNCTV_OAUTH2_APP_LINK_ORIGIN=$SYNCTV_OAUTH2_APP_LINK_ORIGIN"
+          --dart-define "SYNCTV_INCLUDE_THIRD_PARTY_PROVIDERS=false"
+          --build-name "${{ needs.metadata.outputs.version }}"
+          --build-number "${{ needs.metadata.outputs.build-number }}"
+          --split-debug-info build/symbols/macos-app-store
+
+      - name: Verify and package Mac App Store release
+        env:
+          INSTALLER_SIGNING_IDENTITY: ${{ vars.SYNCTV_MACOS_INSTALLER_SIGNING_IDENTITY }}
+        run: |
+          app="build/macos/Build/Products/Release/SyncTV.app"
+          bash tool/ci/verify_macos_architecture.sh "$app" universal
+          bash tool/ci/verify_apple_entitlements.sh \
+            "$app" \
+            "$SYNCTV_PASSKEY_RP_IDS" \
+            "$SYNCTV_OAUTH2_APP_LINK_ORIGIN"
+          bash tool/ci/verify_macos_distribution_signature.sh "$app"
+          if [[ -z "$INSTALLER_SIGNING_IDENTITY" ]]; then
+            echo "SYNCTV_MACOS_INSTALLER_SIGNING_IDENTITY is required" >&2
+            exit 1
+          fi
+          security find-certificate \
+            -c "$INSTALLER_SIGNING_IDENTITY" \
+            "$SYNCTV_APPLE_KEYCHAIN_PATH" >/dev/null
+          mkdir -p dist
+          productbuild \
+            --component "$app" /Applications \
+            --sign "$INSTALLER_SIGNING_IDENTITY" \
+            "dist/SyncTV-${{ needs.metadata.outputs.artifact-version }}-macos-app-store.pkg"
+          pkgutil --check-signature \
+            "dist/SyncTV-${{ needs.metadata.outputs.artifact-version }}-macos-app-store.pkg"
+
+      - name: Set up Ruby and Fastlane
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+
+      - name: Upload macOS app
+        env:
+          SYNCTV_APP_STORE_CONNECT_KEY_ID: ${{ secrets.SYNCTV_APP_STORE_CONNECT_KEY_ID }}
+          SYNCTV_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.SYNCTV_APP_STORE_CONNECT_ISSUER_ID }}
+          SYNCTV_APP_STORE_CONNECT_PRIVATE_KEY_BASE64: ${{ secrets.SYNCTV_APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+          SYNCTV_APP_STORE_SUBMIT_FOR_REVIEW: ${{ inputs.submit_app_store_review }}
+          SYNCTV_RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          pkg="$(find dist -maxdepth 1 -type f -name 'SyncTV-*-macos-app-store.pkg' -print -quit)"
+          bundle exec fastlane mac mac_app_store pkg:"$pkg"
+
+  publish:
+    name: Publish GitHub Release
+    if: github.ref_type == 'tag'
+    needs: [metadata, android, linux, windows, macos, ios]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate SHA-256 checksums
+        shell: bash
+        run: |
+          cd dist
+          sha256sum SyncTV-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          ARTIFACT_VERSION: ${{ needs.metadata.outputs.artifact-version }}
+        run: |
+          bash tool/ci/generate_release_notes.sh dist release-notes.md
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/* --clobber
+            while IFS= read -r existing_asset; do
+              if [[ "$existing_asset" != "SHA256SUMS.txt" &&
+                    "$existing_asset" != SyncTV-* ]]; then
+                continue
+              fi
+              if [[ -f "dist/$existing_asset" ]]; then
+                continue
+              fi
+              gh release delete-asset "$RELEASE_TAG" "$existing_asset" --yes
+            done < <(gh release view "$RELEASE_TAG" \
+              --json assets \
+              --jq '.assets[].name')
+            gh release edit "$RELEASE_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "$RELEASE_TAG" \
+              --notes-file release-notes.md
+            exit 0
+          fi
+
+          release_args=(
+            "$RELEASE_TAG"
+            dist/*
+            --target "$GITHUB_SHA"
+            --title "$RELEASE_TAG"
+            --notes-file release-notes.md
+          )
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            release_args+=(--prerelease --latest=false)
+          fi
+          gh release create "${release_args[@]}"

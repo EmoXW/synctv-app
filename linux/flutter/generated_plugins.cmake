@@ -3,12 +3,18 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
-  flutter_volume_controller
+  desktop_webview_window
   flutter_webrtc
   media_kit_video
+  screen_retriever_linux
+  url_launcher_linux
+  volume_controller
+  window_manager
+  window_to_front
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
+  jni
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

@@ -1,96 +1,244 @@
-# SyncTV (一起看) 的一个前端项目，支持全平台。
-<p align="center">
-  <a href="https://github.com/synctv-org/SyncTV_APP/releases/latest">
-    <img src="https://img.shields.io/github/v/release/synctv-org/SyncTV_APP?style=flat-square&logo=github&color=blue" alt="Release"/>
-  </a>
-  <a href="https://opensource.org/licenses/Apache-2.0">
-    <img src="https://img.shields.io/badge/License-Apache_2.0-green.svg?style=flat-square" alt="License: Apache-2.0"/>
-  </a>
-  <a href="https://github.com/synctv-org/SyncTV_APP/stargazers">
-    <img src="https://img.shields.io/github/stars/synctv-org/SyncTV_APP?style=flat-square&logo=github" alt="Stars"/>
-  </a>
-  <a href="https://github.com/synctv-org/SyncTV_APP/releases/latest">
-    <img src="https://img.shields.io/github/downloads/synctv-org/SyncTV_APP/total?style=flat-square&logo=github&color=52c41a1&maxAge=86400" alt="Download"/>
-  </a>
+<!-- markdownlint-disable MD013 MD033 MD041 -->
 
+<p align="center">
+  <img src="./assets/icon/logo.svg" alt="SyncTV" width="148">
 </p>
 
-SyncTV 是一款跨平台的视频同步观看应用，允许用户创建或加入房间，与好友实时同步观看视频，并支持即时聊天、弹幕互动以及语音通话功能。
+<h1 align="center">SyncTV App</h1>
 
-## Server 端项目介绍
-**Server端作者**：[zijiren233](https://github.com/zijiren233)  |   **APP端作者**：[TOM88812](https://github.com/TOM88812) 
+<p align="center"><strong>Watch together. Stay in sync.</strong></p>
 
-**项目地址**：[SyncTV_SERVER](https://github.com/synctv-org/synctv)
+<p align="center">
+  A native, self-hosting-friendly client for synchronized rooms, rich media providers,
+  real-time conversation, voice chat, and room-scoped media P2P.
+</p>
 
-**支持的平台** ：Android、IOS、Windows、MacOS、Linux、Android TV、Android Pad 鸿蒙 
+<p align="center">
+  <a href="./README.zh-CN.md">简体中文</a> ·
+  <a href="https://syncs.tv">Website</a> ·
+  <a href="https://docs.syncs.tv">Documentation</a> ·
+  <a href="../../releases/latest">Download</a> ·
+  <a href="https://github.com/synctv-org/synctv">Server</a> ·
+  <a href="./PRIVACY.md">Privacy</a> ·
+  <a href="https://t.me/synctv">Discussion</a>
+</p>
 
-**已上架鸿蒙商店** 名称 “看搭子”
-## 📸 预览
+<p align="center">
+  <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/synctv-org/synctv-app?display_name=tag&sort=semver" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/Flutter-3.44.8-02569B?logo=flutter&logoColor=white" alt="Flutter 3.44.8">
+  <img src="https://img.shields.io/badge/platforms-Android%20%7C%20iOS%20%7C%20macOS%20%7C%20Windows%20%7C%20Linux-495057" alt="Supported platforms">
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-2F855A" alt="Apache-2.0 license"></a>
+</p>
 
-| 首页 | 播放界面 |
-|:---:|:---:|
-| <img src="docs/img/home.jpg" width="300" /> | <img src="docs/img/play.jpg" width="300" /> |
+## What SyncTV Delivers
 
-## ✨ 主要功能
+- **Synchronized playback**: shared play, pause, seek, speed, source, quality, and playlist navigation with live drift correction.
+- **A complete room experience**: discovery, guest access, membership, permissions, favorites, chat, danmaku, playback history, and administration.
+- **A broad media surface**: on-demand video, livestreams, direct URLs, HLS, DASH, HTTP-FLV, RTMP, NAS products, private clouds, and media servers.
+- **Native viewing workflows**: fullscreen playback, compact player and picture-in-picture, platform volume and brightness controls, and responsive desktop/mobile layouts.
+- **Room-scoped communication**: WebRTC voice and optional media P2P with configurable short-lived persistent caching and transfer metrics.
+- **Modern authentication**: password, OPAQUE, email, OAuth2, native passkeys, TOTP, recovery flows, and server-directed multi-factor authentication.
+- **Multi-server isolation**: credentials, preferences, caches, and identities are separated by normalized server address.
 
-### 1. 房间系统
-*   **创建/加入房间**：支持创建公开或加密房间。
-*   **房间管理**：房主可管理房间设置（修改密码、踢出成员等）。
-*   **多端同步**：无论是在 PC 还是移动端，都能获得一致的房间列表体验。
+## Product Preview
 
-### 2. 视频同步播放
-*   **多格式支持**：基于 `media_kit` 内核，支持 MP4, MKV, AVI, FLV, M3U8 等几乎所有主流音视频格式。
-*   **精准同步**：毫秒级的播放进度同步，支持暂停、播放、倍速调节同步。
-*   **画质调节**：支持多分辨率切换（需视频源支持）。
+<p align="center">
+  <img src="./fastlane/screenshots/01-home-ipad-13.png" alt="Room discovery" width="420">
+  &nbsp;&nbsp;&nbsp;
+  <img src="./fastlane/screenshots/02-room-ipad-13.png" alt="Synchronized room playback" width="420">
+</p>
 
-### 3. 社交互动
-*   **实时聊天**：房间内内置 WebSocket 实时聊天室。
-*   **弹幕系统**：支持视频弹幕显示，互动更有趣。
-*   **语音通话**：基于 WebRTC 的实时语音交流功能，无需打字即可畅聊。
+## Media Ecosystem
 
-### 4. 资源管理
-*   **电影/视频库**：支持添加和管理房间内的视频资源。
-*   **目录浏览**：支持层级目录结构的视频资源浏览。
-*   **链接解析**：支持直接添加网络视频链接（如 HLS/M3U8）。
+| Category | Providers and capabilities |
+| :--- | :--- |
+| Video and livestream platforms | Bilibili, Twitch, YouTube, Douyin, TikTok, Huya, Douyu, AcFun, and CCTV. URL/ID resolution, native qualities, covers, and provider-supported subtitles, danmaku, chat, chapters, or storyboards. |
+| Media servers and file services | Emby/Jellyfin, Alist, and Cloudreve. Account binding, browsing, search, thumbnails, subtitles, transcoding, and dynamic sources. |
+| NAS and private cloud | FNOS, QNAP, Synology, Nextcloud, Seafile, and TrueNAS. File browsing, search, previews, media libraries, transcoding, favorites, and playback progress where supported. |
+| General sources | Direct URL, RTMP, and Live Proxy with custom headers, Range requests, HLS, DASH, HTTP-FLV, and room livestreams. |
 
-### 5. 个性化体验
-*   **深色模式**：自动适配系统深色/浅色模式，或强制纯白主题。
-*   **自定义配置**：支持长按标题修改服务器地址，方便私有化部署连接。
+Provider capabilities and credentials are decided by the server. The app consumes typed protobuf source configuration and lets users choose individual items, selected items, or dynamic playlists. See the server's [Provider User Guide](https://docs.syncs.tv/en/use/provider-guide/) and [Provider Development Guide](https://docs.syncs.tv/en/develop/provider-development/).
 
-### 6. 投屏功能
-*   **支持投屏**：支持将视频同步到其他设备（如 TV、智能电视、手机等）进行播放。
-*   **投屏控制**：在投屏设备上可控制视频播放（暂停、播放、快进等）。
+## Architecture
 
-## 🛠️ 技术栈
+```mermaid
+flowchart LR
+    P["Media providers, NAS, and direct sources"]
+    S["SyncTV server"]
+    A["SyncTV App · client A"]
+    B["SyncTV App · client B"]
 
-*   **框架**: Flutter (Dart)
-
-## 🚀 快速开始
-
-### 1. 环境要求
-*   Flutter SDK >= 3.10.0
-*   Dart SDK >= 3.0.0
-
-### 2. 获取代码
-```bash
-git clone https://github.com/TOM88812/SyncTV_APP.git
-cd synctv_app
+    P -->|Resolve, authorize, or proxy| S
+    S <-->|Rooms, playback state, messages, signaling| A
+    S <-->|Rooms, playback state, messages, signaling| B
+    P -->|Direct media when selected| A
+    P -->|Direct media when selected| B
+    A <-.->|Room-scoped voice and media P2P| B
 ```
 
-## ⚙️ 隐藏功能
-*   **修改服务器地址**：在首页长按顶部 "一起看" 标题，即可弹出服务器配置对话框，支持连接到私有部署的 SyncTV 后端。
+The server remains the authority for rooms, permissions, playback, provider decisions, and P2P swarm identity. Clients may fetch media directly or through the server's proxy according to each playback source.
 
-*   **⚠️注意**填写地址的时候需要添加/api，示例'http://xxx.xx/api'
+Contributor-facing layering and test boundaries are documented in [Application Architecture](./docs/architecture.md).
 
-## 📄 开源协议
-Apache-2.0 license
+## Platforms and Downloads
 
-# 免责声明
+| Platform | Minimum | Release artifacts |
+| :--- | :--- | :--- |
+| Android | Android 7.0 / API 24 | Universal, armv7, arm64, and x64 APKs; universal AAB |
+| iOS | iOS 17.4 | Signed IPA for configured releases; re-signable archive for unsigned fork builds |
+| macOS | macOS 14.4 | Universal, Apple silicon, and Intel DMG/ZIP packages |
+| Windows | Windows 10 1809 | x64 Inno Setup EXE and portable ZIP; supported on Windows ARM64 through x64 emulation |
+| Linux | Current Debian/Ubuntu baseline | x64 and ARM64 DEB packages and portable TAR.GZ archives |
 
-- 这个程序是一个免费且开源的项目。它旨在播放网络上的视频文件，方便多人共同观看视频和学习。
-- 在使用时，请遵守相关法律法规，不要滥用。
-- 该程序仅进行客户端播放视频文件/流量转发，不会拦截、存储或篡改任何用户数据。
-- 在使用该程序之前，您应该了解并承担相应的风险，包括但不限于版权纠纷、法律限制等，这与该程序无关。
-# 讨论
+Every GitHub Release contains a quick-download matrix and `SHA256SUMS.txt`. Native debug symbols are published separately. Windows ARM64-native output depends on upstream Flutter, media-kit, and WebView2 ARM64 support.
 
-- [Telegram](https://t.me/synctv)
+## Quick Start
+
+### Prerequisites
+
+- [FVM](https://fvm.app/) with Flutter `3.44.8` and Dart `3.12.2`.
+- Node.js `24` and npm for macOS DMG packaging.
+- Rust `1.97.1` for the OPAQUE native asset.
+- Protobuf compiler `35.1` and Dart `protoc_plugin 25.0.0` when regenerating API code.
+- librsvg and FFmpeg when regenerating app icons.
+- The native platform toolchain for the target: Java 17 and Android SDK, Xcode, Visual Studio, or the Linux GTK/WebKit/MPV development packages.
+
+```bash
+git clone https://github.com/synctv-org/synctv-app.git
+cd synctv-app
+
+fvm install
+fvm flutter pub get
+fvm dart analyze --fatal-infos
+fvm flutter test
+fvm flutter run
+```
+
+Start a [SyncTV server](https://github.com/synctv-org/synctv) before running the app. Debug builds use `http://127.0.0.1:8080` as the development endpoint. Store and release builds open the server setup flow when no built-in server is configured.
+
+### Regenerate protobuf code
+
+The app owns the protobuf snapshot in `proto/`; generation never reads from a sibling server checkout.
+
+```bash
+dart pub global activate protoc_plugin 25.0.0
+bash tool/generate_proto.sh
+git diff --exit-code -- lib/src/generated
+```
+
+### Regenerate app icons
+
+`assets/icon/logo-notext.png` and `assets/icon/logo-notext.svg` are copies of
+the designer-provided no-text logo. The generator creates the shared iOS and
+macOS Icon Composer package plus the Android, Windows, and Linux formats.
+Apple builds require Xcode 26 or newer.
+
+```bash
+bash tool/generate_app_icons.sh
+```
+
+### Build-time server configuration
+
+Release builds are server-neutral by default. A distributor can embed a server explicitly:
+
+```bash
+fvm flutter build apk --release \
+  --dart-define SYNCTV_BUILT_IN_SERVER_URL=https://tv.example.com
+```
+
+The Release workflow reads two independent repository variables. `SYNCTV_BUILT_IN_SERVER_URL` configures downloadable GitHub Release assets. `SYNCTV_STORE_BUILT_IN_SERVER_URL` configures Google Play, iOS App Store, and Mac App Store builds and resolves to an empty value when unset. `SYNCTV_PASSKEY_RP_IDS` accepts semicolon-separated RP IDs for native passkey association. `SYNCTV_OAUTH2_APP_LINK_ORIGIN` configures the HTTPS origin used by Android Auth Tabs and Apple authentication sessions. Windows and Linux use a temporary loopback callback through the system browser.
+
+## Native Passkeys and Self-hosting
+
+Native passkeys rely on an authenticated association between the app identity and the server's RP domain.
+
+- **Android** can connect the official app to any self-hosted domain dynamically. Configure the server with package `org.synctv.app` and the release certificate fingerprints from the `android-passkey-server-config.yaml` attached to official signed releases.
+- **Apple platforms** embed allowed RP IDs in the signed app's Associated Domains entitlement. A self-hosted Apple build must include its RP ID in `SYNCTV_PASSKEY_RP_IDS`, use an Apple Developer Team signature, and register `<TeamID>.org.synctv.app` in the server's `webauthn.apple_app_ids`.
+- **Availability is server-directed**. The app exposes native passkeys only when the platform and the selected server association are valid.
+
+The complete server configuration and security model are documented in [WebAuthn and Passkeys](https://docs.syncs.tv/en/configuration/webauthn/).
+
+## Continuous Integration and Releases
+
+The workflows are designed for both the upstream repository and forks. Repository URLs, release links, package metadata, and artifact names are derived from the active GitHub context.
+
+- Every branch push runs formatting, analysis, generated-code checks, and tests.
+- Pull requests, the default branch, and manual CI also build Android ARM64, Linux x64/ARM64, Windows x64, macOS Universal, and unsigned iOS releases.
+- `v*` tags run the quality gate, build the full artifact matrix, produce checksums and download notes, then publish a GitHub Release.
+- Store publication is opt-in and protected through the `google-play` and `app-store` GitHub Environments.
+
+<details>
+<summary><strong>Signing and store configuration</strong></summary>
+
+Android release signing uses these repository secrets:
+
+| Secret | Purpose |
+| :--- | :--- |
+| `SYNCTV_ANDROID_KEYSTORE_BASE64` | Base64-encoded release keystore |
+| `SYNCTV_ANDROID_KEYSTORE_PASSWORD` | Keystore password |
+| `SYNCTV_ANDROID_KEY_ALIAS` | Release key alias |
+| `SYNCTV_ANDROID_KEY_PASSWORD` | Release key password |
+
+Windows Authenticode uses `SYNCTV_WINDOWS_CERTIFICATE_BASE64` and `SYNCTV_WINDOWS_CERTIFICATE_PASSWORD`. The optional `SYNCTV_WINDOWS_TIMESTAMP_URL` variable selects the RFC 3161 timestamp service.
+
+Apple distribution uses these repository variables:
+
+| Variable | Purpose |
+| :--- | :--- |
+| `SYNCTV_APPLE_DEVELOPMENT_TEAM` | Apple Team ID |
+| `SYNCTV_IOS_SIGNING_IDENTITY` | iOS distribution identity |
+| `SYNCTV_MACOS_SIGNING_IDENTITY` | Developer ID Application identity |
+| `SYNCTV_MACOS_APP_STORE_SIGNING_IDENTITY` | Mac App Store application identity |
+| `SYNCTV_MACOS_INSTALLER_SIGNING_IDENTITY` | Mac App Store installer identity |
+| `SYNCTV_PUBLISH_APP_STORE_ON_TAG` | Set to `true` to upload Apple builds from version tags |
+
+Apple signing and upload use these secrets:
+
+| Secret | Purpose |
+| :--- | :--- |
+| `SYNCTV_APPLE_DISTRIBUTION_CERTIFICATE_BASE64` / `..._PASSWORD` | Apple Distribution PKCS#12 |
+| `SYNCTV_MACOS_DEVELOPER_ID_CERTIFICATE_BASE64` / `..._PASSWORD` | Developer ID Application PKCS#12 |
+| `SYNCTV_IOS_APP_STORE_PROVISIONING_PROFILE_BASE64` | iOS App Store profile |
+| `SYNCTV_MACOS_DEVELOPER_ID_PROVISIONING_PROFILE_BASE64` | Developer ID profile |
+| `SYNCTV_MACOS_APP_STORE_PROVISIONING_PROFILE_BASE64` | Mac App Store profile |
+| `SYNCTV_MACOS_INSTALLER_CERTIFICATE_BASE64` / `..._PASSWORD` | Mac Installer Distribution PKCS#12 |
+| `SYNCTV_APP_STORE_CONNECT_KEY_ID` | App Store Connect API key ID |
+| `SYNCTV_APP_STORE_CONNECT_ISSUER_ID` | App Store Connect issuer ID |
+| `SYNCTV_APP_STORE_CONNECT_PRIVATE_KEY_BASE64` | Base64-encoded `.p8` API private key |
+
+Google Play publication uses `SYNCTV_GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` in the `google-play` Environment. `SYNCTV_GOOGLE_PLAY_APP_SIGNING_SHA256` adds Play App Signing certificate fingerprints to the generated self-hosting configuration.
+
+An empty signing configuration produces development-signed Android APKs, ad-hoc macOS packages, unsigned Windows packages, and a re-signable iOS archive. A partially configured credential group fails early. Apple publishing uploads the canonical screenshots from `fastlane/screenshots`; store price, availability, privacy answers, and review metadata remain managed in App Store Connect or Play Console.
+
+</details>
+
+The authoritative implementations live in [CI](./.github/workflows/ci.yml), [Release](./.github/workflows/release.yml), and the reusable [toolchain setup action](./.github/actions/setup-build/action.yml).
+
+## Repository Layout
+
+| Path | Responsibility |
+| :--- | :--- |
+| `lib/` | Flutter UI, domain models, state, services, playback, rooms, authentication, and provider flows |
+| `proto/` | Public protobuf snapshot consumed by this app |
+| `lib/src/generated/` | Generated Dart protobuf code |
+| `packages/` | Local media-player integration, OPAQUE native asset, and maintained Darwin passkey fixes |
+| `test/` | Unit, widget, protocol, service, and regression tests |
+| `android/`, `ios/`, `macos/`, `windows/`, `linux/` | Native runners, permissions, packaging, and platform integration |
+| `tool/` | Code generation, local smoke tooling, CI verification, signing, and packaging scripts |
+| `fastlane/` | Google Play, iOS App Store, and Mac App Store upload automation |
+
+## Discussion and Contributors
+
+Join the [SyncTV Telegram discussion](https://t.me/synctv) to talk with users and contributors about setup, playback, Providers, self-hosting, and development.
+
+![SyncTV App contributors](https://contrib.nn.ci/api?repo=synctv-org/synctv-app)
+
+## Privacy and Responsible Use
+
+SyncTV contains no advertising SDK, cross-app tracking, centralized analytics, or automatic crash reporting. Server-specific credentials and cached data remain isolated by normalized server address. Review the [Privacy Policy](./PRIVACY.md) and the selected server operator's policy before connecting accounts or providers.
+
+SyncTV is a general-purpose synchronization client. Users and server operators are responsible for media rights, local law, provider terms, access control, and retention policy.
+
+## License
+
+Licensed under [Apache-2.0](./LICENSE).

@@ -5,10 +5,28 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = synctv_app
+PRODUCT_NAME = SyncTV
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = lhht.synctv
+PRODUCT_BUNDLE_IDENTIFIER = org.synctv.app
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 lhht. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 SyncTV. All rights reserved.
+
+// CI writes the optional file from encrypted repository secrets. These defaults
+// keep local and fork builds ad-hoc signed and fully buildable.
+SYNCTV_CODE_SIGN_IDENTITY = -
+SYNCTV_CODE_SIGN_STYLE = Manual
+SYNCTV_DEVELOPMENT_TEAM =
+SYNCTV_PROVISIONING_PROFILE_SPECIFIER =
+SYNCTV_ENABLE_HARDENED_RUNTIME = NO
+SYNCTV_CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES
+SYNCTV_OTHER_CODE_SIGN_FLAGS =
+#include? "../../Flutter/Signing.xcconfig"
+CODE_SIGN_IDENTITY = $(SYNCTV_CODE_SIGN_IDENTITY)
+CODE_SIGN_STYLE = $(SYNCTV_CODE_SIGN_STYLE)
+DEVELOPMENT_TEAM = $(SYNCTV_DEVELOPMENT_TEAM)
+PROVISIONING_PROFILE_SPECIFIER = $(SYNCTV_PROVISIONING_PROFILE_SPECIFIER)
+ENABLE_HARDENED_RUNTIME = $(SYNCTV_ENABLE_HARDENED_RUNTIME)
+CODE_SIGN_INJECT_BASE_ENTITLEMENTS = $(SYNCTV_CODE_SIGN_INJECT_BASE_ENTITLEMENTS)
+OTHER_CODE_SIGN_FLAGS = $(SYNCTV_OTHER_CODE_SIGN_FLAGS)

@@ -1,1227 +1,206 @@
-import 'dart:async';
-import 'dart:io';
+import 'package:accessibility_tools/accessibility_tools.dart';
+import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:synctv_app/models/watch_together_models.dart';
-import 'package:synctv_app/services/watch_together_service.dart';
-import 'package:synctv_app/pages/mobile/watch_together_room_screen.dart';
-import 'package:synctv_app/pages/desktop/desktop_home_screen.dart';
-import 'package:synctv_app/pages/large_screen/large_screen_home.dart';
-import 'package:synctv_app/widgets/watch_together_admin_settings.dart';
-import 'package:synctv_app/utils/message_utils.dart';
-import 'package:synctv_app/utils/chat_utils.dart';
+import 'package:forui/forui.dart';
+import 'package:responsive_framework/responsive_framework.dart';
+import 'package:synctv_app/l10n/l10n.dart';
+import 'package:synctv_app/features/app_shell/presentation/app_shell.dart';
+import 'package:synctv_app/app/app_dependencies.dart';
+import 'package:synctv_app/features/auth/data/synctv_auth_gateway.dart';
+import 'package:synctv_app/features/auth/infrastructure/native_passkey_client.dart';
+import 'package:synctv_app/features/auth/application/opaque_authenticator.dart';
+import 'package:synctv_app/features/auth/data/synctv_opaque_auth_gateway.dart';
+import 'package:synctv_app/features/account/data/synctv_account_gateway.dart';
+import 'package:synctv_app/features/admin/data/synctv_admin_gateway.dart';
+import 'package:synctv_app/features/content_reports/data/synctv_content_reports_gateway.dart';
+import 'package:synctv_app/features/server_settings/data/synctv_server_connection_gateway.dart';
+import 'package:synctv_app/features/room/data/synctv_room_creation_gateway.dart';
+import 'package:synctv_app/features/room/data/http_danmaku_source.dart';
+import 'package:synctv_app/features/room/data/http_subtitle_source.dart';
+import 'package:synctv_app/features/room/data/synctv_room_chat_gateway.dart';
+import 'package:synctv_app/features/room/data/synctv_room_playback_gateway.dart';
+import 'package:synctv_app/features/room/application/playback_mode_preferences_controller.dart';
+import 'package:synctv_app/features/room/application/player_volume_preferences_controller.dart';
+import 'package:synctv_app/features/room/application/realtime_event_log_preferences_controller.dart';
+import 'package:synctv_app/features/room/data/shared_preferences_realtime_event_log_store.dart';
+import 'package:synctv_app/features/room/data/protobuf_room_realtime_protocol.dart';
+import 'package:synctv_app/features/room/data/room_realtime_connection.dart';
+import 'package:synctv_app/features/room/data/shared_preferences_playback_mode_store.dart';
+import 'package:synctv_app/features/room/data/shared_preferences_player_volume_store.dart';
+import 'package:synctv_app/features/room/data/synctv_room_session_gateway.dart';
+import 'package:synctv_app/features/room/data/synctv_room_management_gateway.dart';
+import 'package:synctv_app/features/app_shell/data/synctv_resource_url_resolver.dart';
+import 'package:synctv_app/features/home/data/synctv_home_gateway.dart';
+import 'package:synctv_app/features/media_p2p/application/p2p_media_preferences_controller.dart';
+import 'package:synctv_app/features/media_p2p/infrastructure/p2p_media_runtime_factory.dart';
+import 'package:synctv_app/features/media_p2p/data/shared_preferences_p2p_media_preferences_store.dart';
+import 'package:synctv_app/features/media_library/data/synctv_media_library_gateway.dart';
+import 'package:synctv_app/features/providers/data/synctv_provider_gateway.dart';
+import 'package:synctv_app/features/providers/infrastructure/desktop_web_verification_client.dart';
+import 'package:synctv_app/core/localization/app_locale_controller.dart';
+import 'package:synctv_app/features/auth/infrastructure/oauth2_callback_service.dart';
+import 'package:synctv_app/features/room/infrastructure/picture_in_picture_service.dart';
+import 'package:synctv_app/features/voice/infrastructure/voice_chat_manager.dart';
+import 'package:synctv_app/data/synctv_api/synctv_service.dart';
+import 'package:synctv_app/theme/app_responsive.dart';
 import 'package:synctv_app/theme/app_theme.dart';
-import 'package:video_player_media_kit/video_player_media_kit.dart';
+import 'package:synctv_video_player_media_kit/synctv_video_player_media_kit.dart';
+import 'package:window_manager/window_manager.dart';
 
-void main() async {
+void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
-  await WatchTogetherService.init();
-  VideoPlayerMediaKit.ensureInitialized(
-    android: true,
-    iOS: true,
-    windows: true,
-    macOS: true,
-    linux: true,
+  if (runWebViewTitleBarWidget(args)) {
+    return;
+  }
+  await appLocaleController.load();
+  await SyncTvService.init();
+  if (SyncTvService.activeServer != null) {
+    await SyncTvService.syncServerTime();
+  }
+  const oauth2Callbacks = FlutterWebAuth2CallbackClient();
+  final p2pMediaPreferences = P2pMediaPreferencesController(
+    store: const SharedPreferencesP2pMediaPreferencesStore(),
   );
-  runApp(const MyApp());
+  await p2pMediaPreferences.load();
+  final playbackModePreferences = PlaybackModePreferencesController(
+    store: const SharedPreferencesPlaybackModeStore(),
+  );
+  await playbackModePreferences.load();
+  final playerVolumePreferences = PlayerVolumePreferencesController(
+    store: const SharedPreferencesPlayerVolumeStore(),
+  );
+  await playerVolumePreferences.load();
+  final realtimeEventLogPreferences = RealtimeEventLogPreferencesController(
+    store: const SharedPreferencesRealtimeEventLogStore(),
+  );
+  await realtimeEventLogPreferences.load();
+  final opaqueAuthenticator = OpaqueAuthenticatorService(
+    gateway: const SyncTvOpaqueAuthGateway(),
+  );
+  const roomSessionGateway = SyncTvRoomSessionGateway();
+
+  if (!kIsWeb &&
+      const {
+        TargetPlatform.macOS,
+        TargetPlatform.windows,
+        TargetPlatform.linux,
+      }.contains(defaultTargetPlatform)) {
+    await windowManager.ensureInitialized();
+    await windowManager.setTitleBarStyle(
+      TitleBarStyle.normal,
+      windowButtonVisibility: true,
+    );
+    await windowManager.setMinimumSize(desktopWindowMinimumSize);
+    final windowSize = await windowManager.getSize();
+    if (windowSize.width < desktopWindowMinimumSize.width ||
+        windowSize.height < desktopWindowMinimumSize.height) {
+      await windowManager.setSize(desktopWindowDefaultSize);
+      await windowManager.center();
+    }
+  }
+
+  try {
+    SyncTvVideoPlayerMediaKit.ensureInitialized(
+      android: true,
+      iOS: false,
+      windows: true,
+      macOS: true,
+      linux: true,
+    );
+  } catch (e) {
+    debugPrint('Failed to initialize media playback: $e');
+  }
+  final dependencies = AppDependencies(
+    accountGateway: const SyncTvAccountGateway(),
+    adminGateway: const SyncTvAdminGateway(),
+    authGateway: const SyncTvAuthGateway(),
+    contentReportsGateway: const SyncTvContentReportsGateway(),
+    homeGateway: const SyncTvHomeGateway(),
+    opaqueAuthenticator: opaqueAuthenticator,
+    oauth2Callbacks: oauth2Callbacks,
+    passkeyClient: const NativePasskeyClient(),
+    p2pMediaPreferences: p2pMediaPreferences,
+    p2pMediaRuntimeFactory: const NativeP2pMediaRuntimeFactory(),
+    mediaLibraryGateway: const SyncTvMediaLibraryGateway(),
+    providerGateway: const SyncTvProviderGateway(),
+    desktopWebVerificationClient: const NativeDesktopWebVerificationClient(),
+    resourceUrlResolver: const SyncTvResourceUrlResolver(),
+    roomCreationGateway: const SyncTvRoomCreationGateway(),
+    danmakuSource: const HttpDanmakuSource(),
+    subtitleSource: const HttpSubtitleSource(),
+    pictureInPicture: PictureInPictureService.instance,
+    playerVolumePreferences: playerVolumePreferences,
+    realtimeEventLogPreferences: realtimeEventLogPreferences,
+    roomRealtimeChannelFactory: const IoRoomRealtimeChannelFactory(
+      sessionGateway: roomSessionGateway,
+    ),
+    roomRealtimeProtocol: const ProtobufRoomRealtimeProtocol(),
+    roomChatGateway: const SyncTvRoomChatGateway(),
+    roomPlaybackGateway: const SyncTvRoomPlaybackGateway(),
+    playbackModePreferences: playbackModePreferences,
+    roomSessionGateway: roomSessionGateway,
+    roomManagementGateway: const SyncTvRoomManagementGateway(),
+    serverConnectionGateway: const SyncTvServerConnectionGateway(),
+    voiceChatSessionFactory: const NativeVoiceChatSessionFactory(),
+  );
+  runApp(MyApp(dependencies: dependencies));
 }
+
+const _enableAccessibilityTools = bool.fromEnvironment(
+  'SYNCTV_ENABLE_ACCESSIBILITY_TOOLS',
+);
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({super.key, required this.dependencies});
+
+  final AppDependencies dependencies;
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'SyncTV',
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
-      builder: (context, child) {
-        final mediaQueryData = MediaQuery.of(context);
-        var newMediaQueryData = mediaQueryData;
-        Widget newChild = child!;
-        if (mediaQueryData.size.width < 600 && mediaQueryData.size.width > 0) {
-          const double targetWidth = 414.0;          
-          if (mediaQueryData.size.width < targetWidth) {
-            final double scale = mediaQueryData.size.width / targetWidth;
-            newMediaQueryData = mediaQueryData.copyWith(
-              size: Size(targetWidth, mediaQueryData.size.height / scale),
-              devicePixelRatio: mediaQueryData.devicePixelRatio * scale,
-              padding: mediaQueryData.padding / scale,
-              viewPadding: mediaQueryData.viewPadding / scale,
-              viewInsets: mediaQueryData.viewInsets / scale,
-              systemGestureInsets: mediaQueryData.systemGestureInsets / scale,
-              textScaler: mediaQueryData.textScaler.clamp(minScaleFactor: 0.8, maxScaleFactor: 1.0),
+    return ListenableBuilder(
+      listenable: appLocaleController,
+      builder: (context, _) => MaterialApp(
+        onGenerateTitle: (context) => context.l10n.appTitle,
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        locale: appLocaleController.locale,
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: const [
+          ...AppLocalizations.localizationsDelegates,
+          FLocalizations.delegate,
+        ],
+        builder: (context, child) {
+          final mediaQueryData = MediaQuery.of(context);
+          final newMediaQueryData = mediaQueryData.copyWith(
+            textScaler: mediaQueryData.textScaler.clamp(
+              minScaleFactor: 0.85,
+              maxScaleFactor: 1.3,
+            ),
+          );
+          final foruiTheme = Theme.of(context).brightness == Brightness.dark
+              ? FTheme.neutral.dark.desktop
+              : FTheme.neutral.light.desktop;
+          Widget appChild = MediaQuery(data: newMediaQueryData, child: child!);
+          appChild = ResponsiveBreakpoints.builder(
+            breakpoints: AppBreakpoints.values,
+            child: appChild,
+          );
+          if (kDebugMode && _enableAccessibilityTools) {
+            appChild = AccessibilityTools(
+              checkFontOverflows: true,
+              buttonsAlignment: ButtonsAlignment.bottomLeft,
+              child: appChild,
             );
-
-            newChild = FittedBox(
-              fit: BoxFit.contain,
-              alignment: Alignment.center,
-              child: SizedBox(
-                width: targetWidth,
-                height: mediaQueryData.size.height / scale,
-                child: newChild,
-              ),
-            );
-          } else {
-             newMediaQueryData = mediaQueryData.copyWith(
-               textScaler: mediaQueryData.textScaler.clamp(minScaleFactor: 0.8, maxScaleFactor: 1.0),
-             );
           }
-        } else {
-           newMediaQueryData = mediaQueryData.copyWith(
-             textScaler: mediaQueryData.textScaler.clamp(minScaleFactor: 0.8, maxScaleFactor: 1.0),
-           );
-        }
 
-        return MediaQuery(
-          data: newMediaQueryData,
-          child: newChild,
-        );
-      },
-      // home: const LargeScreenHome(),
-       home: Builder(
-         builder: (context) {
-           if (_isDesktop()) {
-             return const DesktopHomeScreen();
-           }
-           if (MediaQuery.of(context).size.width > 600) {
-             return const LargeScreenHome();
-           }
-           return const WatchTogetherHomeScreen();
-         },
-       ),
-    );
-  }
-
-  bool _isDesktop() {
-    if (kIsWeb) return false;
-    return Platform.isWindows || Platform.isMacOS || Platform.isLinux;
-  }
-}
-
-class WatchTogetherHomeScreen extends StatefulWidget {
-  const WatchTogetherHomeScreen({super.key});
-
-  @override
-  State<WatchTogetherHomeScreen> createState() => _WatchTogetherHomeScreenState();
-}
-
-class _WatchTogetherHomeScreenState extends State<WatchTogetherHomeScreen> {
-  bool _isLoading = true;
-  List<WRoom> _rooms = [];
-  bool _isLoggedIn = false;
-  WUser? _currentUser;
-  StreamSubscription? _authErrorSubscription;
-
-  final List<Color> _cardColors = [
-    const Color(0xFFE8F0FE), // Light Blue
-    const Color(0xFFFCE8E6), // Light Red
-    const Color(0xFFE6F4EA), // Light Green
-    const Color(0xFFFEF7E0), // Light Yellow
-    const Color(0xFFF3E8FD), // Light Purple
-    const Color(0xFFE0F2F1), // Light Teal
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _authErrorSubscription = WatchTogetherService.onAuthError.listen((_) {
-      if (mounted) {
-        // Clear token to ensure UI reflects logged out state if needed
-        WatchTogetherService.logout();
-        setState(() {
-          _isLoggedIn = false;
-        });
-        _showLoginDialog();
-      }
-    });
-    _checkLoginAndLoadData();
-  }
-
-  @override
-  void dispose() {
-    _authErrorSubscription?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _fetchUserInfo() async {
-    try {
-      final user = await WatchTogetherService.getMe();
-      if (mounted) {
-        setState(() {
-          _currentUser = user;
-        });
-      }
-    } catch (e) {
-    }
-  }
-
-  Future<void> _checkLoginAndLoadData() async {
-    final token = await WatchTogetherService.getToken();
-    if (token == null) {
-      if (mounted) {
-        _showLoginDialog();
-      }
-    } else {
-      setState(() {
-        _isLoggedIn = true;
-      });
-      
-      _loadRooms(silent: false);
-
-      await _fetchUserInfo();
-    }
-  }
-
-  Future<void> _loadRooms({bool silent = false}) async {
-    if (!silent) {
-      setState(() {
-        _isLoading = true;
-      });
-    }
-    try {
-      final publicRoomsFuture = WatchTogetherService.getRooms();
-      final myRoomsFuture = WatchTogetherService.getMyRooms().catchError((e) {
-        print('Failed to fetch my rooms: $e');
-        return <WRoom>[];
-      });
-
-      final results = await Future.wait([publicRoomsFuture, myRoomsFuture]);
-      
-      final publicRooms = results[0];
-      final myRooms = results[1];
-      
-      final publicRoomIds = publicRooms.map((r) => r.roomId).toSet();
-
-      final Map<String, WRoom> roomMap = {};
-      
-      for (var room in myRooms) {
-        if (!publicRoomIds.contains(room.roomId)) {
-          room = room.copyWith(hidden: true);
-        }
-        roomMap[room.roomId] = room;
-      }
-      
-      for (var room in publicRooms) {
-        if (!roomMap.containsKey(room.roomId)) {
-          roomMap[room.roomId] = room;
-        }
-      }
-
-      if (mounted) {
-        setState(() {
-          _rooms = roomMap.values.toList();
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-        MessageUtils.showError(context, '加载房间列表失败: $e');
-      }
-    }
-  }
-
-  void _showLoginDialog() {
-    ChatUtils.showStyledDialog<bool>(
-      context: context,
-      title: '登录/注册',
-      icon: const Icon(Icons.login, color: Color(0xFF5D5FEF)),
-      content: const LoginDialog(),
-      actions: [],
-    ).then((result) {
-      if (result == true) {
-        setState(() {
-          _isLoggedIn = true;
-        });
-        _loadRooms(silent: false);
-        _fetchUserInfo();
-      } else {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
-        }
-      }
-    });
-  }
-
-  void _showCreateRoomDialog() {
-    final nameController = TextEditingController();
-    final passwordController = TextEditingController();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDark ? Colors.white : Colors.black87;
-
-    ChatUtils.showStyledDialog(
-      context: context,
-      title: '创建房间',
-      icon: const Icon(Icons.add_box_outlined, color: Color(0xFF5D5FEF)),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: nameController,
-            style: TextStyle(color: textColor),
-            decoration: const InputDecoration(
-              labelText: '房间名称',
-              labelStyle: TextStyle(color: Colors.grey),
-              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
-              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF5D5FEF))),
-            ),
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: passwordController,
-            style: TextStyle(color: textColor),
-            decoration: const InputDecoration(
-              labelText: '密码 (可选)',
-              labelStyle: TextStyle(color: Colors.grey),
-              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
-              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF5D5FEF))),
-            ),
-            obscureText: true,
-          ),
-        ],
-      ),
-      actions: [
-        ChatUtils.createCancelButton(context),
-        const SizedBox(width: 8),
-        ChatUtils.createConfirmButton(
-          context,
-          () async {
-            if (nameController.text.isEmpty) {
-              MessageUtils.showWarning(context, '请输入房间名称');
-              return;
-            }
-            try {
-              await WatchTogetherService.createRoom(
-                nameController.text,
-                password: passwordController.text.isEmpty ? null : passwordController.text,
-              );
-              Navigator.pop(context);
-              _loadRooms(silent: true);
-              MessageUtils.showSuccess(context, '房间创建成功');
-            } catch (e) {
-              MessageUtils.showError(context, '创建失败: $e');
-            }
-          },
-          text: '创建',
-        ),
-      ],
-    );
-  }
-
-  void _showJoinRoomDialog() {
-    final idController = TextEditingController();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDark ? Colors.white : Colors.black87;
-
-    ChatUtils.showStyledDialog(
-      context: context,
-      title: '加入房间',
-      icon: const Icon(Icons.login_rounded, color: Color(0xFF5D5FEF)),
-      content: TextField(
-        controller: idController,
-        style: TextStyle(color: textColor),
-        decoration: const InputDecoration(
-          labelText: '房间ID',
-          labelStyle: TextStyle(color: Colors.grey),
-          enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
-          focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF5D5FEF))),
-        ),
-      ),
-      actions: [
-        ChatUtils.createCancelButton(context),
-        const SizedBox(width: 8),
-        ChatUtils.createConfirmButton(
-          context,
-          () async {
-            if (idController.text.isEmpty) {
-              MessageUtils.showWarning(context, '请输入房间ID');
-              return;
-            }
-            try {
-              final room = await WatchTogetherService.getRoomInfo(idController.text);
-              Navigator.pop(context); // Close join dialog
-              _handleJoinRoom(room);
-            } catch (e) {
-              MessageUtils.showError(context, '查找房间失败: $e');
-            }
-          },
-          text: '加入',
-        ),
-      ],
-    );
-  }
-
-  void _showChangePasswordDialog() {
-    final passwordController = TextEditingController();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDark ? Colors.white : Colors.black87;
-
-    ChatUtils.showStyledDialog(
-      context: context,
-      title: '修改密码',
-      icon: const Icon(Icons.password, color: Color(0xFF5D5FEF)),
-      content: TextField(
-        controller: passwordController,
-        style: TextStyle(color: textColor),
-        decoration: const InputDecoration(
-          labelText: '新密码',
-          labelStyle: TextStyle(color: Colors.grey),
-          enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
-          focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF5D5FEF))),
-        ),
-        obscureText: true,
-      ),
-      actions: [
-        ChatUtils.createCancelButton(context),
-        const SizedBox(width: 8),
-        ChatUtils.createConfirmButton(
-          context,
-          () async {
-            if (passwordController.text.isEmpty) {
-              MessageUtils.showWarning(context, '请输入新密码');
-              return;
-            }
-            try {
-              await WatchTogetherService.changePassword(passwordController.text);
-              Navigator.pop(context);
-              MessageUtils.showSuccess(context, '密码修改成功');
-            } catch (e) {
-              MessageUtils.showError(context, '修改失败: $e');
-            }
-          },
-          text: '确定',
-        ),
-      ],
-    );
-  }
-
-  void _showAdminSettingsDialog() {
-    ChatUtils.showStyledDialog(
-      context: context,
-      title: '管理员设置',
-      icon: const Icon(Icons.admin_panel_settings, color: Color(0xFF5D5FEF)),
-      content: const SizedBox(
-        width: double.maxFinite,
-        height: 500,
-        child: AdminSettingsDialog(),
-      ),
-      actions: [],
-    ).then((_) {
-      _loadRooms(silent: true);
-    });
-  }
-
-  void _showOptionsBottomSheet() {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final isAdmin = _currentUser != null && _currentUser!.role >= 4;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: isDark ? Colors.grey.shade900 : Colors.white,
-      elevation: 20,
-      barrierColor: Colors.black.withOpacity(0.5),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.symmetric(vertical: 16),
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.grey.shade600 : Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 8),
-              if (!_isLoggedIn)
-                _buildOptionItem(
-                  icon: Icons.login,
-                  title: '登录账号',
-                  color: const Color(0xFF5D5FEF),
-                  isDark: isDark,
-                  onTap: () {
-                    Navigator.pop(context);
-                    _showLoginDialog();
-                  },
-                ),
-              _buildOptionItem(
-                icon: Icons.add_box_outlined,
-                title: '创建房间',
-                color: const Color(0xFF5D5FEF),
-                isDark: isDark,
-                onTap: () {
-                  Navigator.pop(context);
-                  _showCreateRoomDialog();
-                },
-              ),
-              _buildOptionItem(
-                icon: Icons.login_rounded,
-                title: '加入房间',
-                color: Colors.green,
-                isDark: isDark,
-                onTap: () {
-                  Navigator.pop(context);
-                  _showJoinRoomDialog();
-                },
-              ),
-              _buildOptionItem(
-                icon: Icons.lock_reset,
-                title: '修改密码',
-                color: Colors.blue,
-                isDark: isDark,
-                onTap: () {
-                  Navigator.pop(context);
-                  _showChangePasswordDialog();
-                },
-              ),
-              if (isAdmin)
-                _buildOptionItem(
-                  icon: Icons.admin_panel_settings,
-                  title: '管理员设置',
-                  color: Colors.orange,
-                  isDark: isDark,
-                  onTap: () {
-                    Navigator.pop(context);
-                    _showAdminSettingsDialog();
-                  },
-                ),
-              if (_isLoggedIn)
-                _buildOptionItem(
-                  icon: Icons.logout,
-                  title: '退出登录',
-                  color: Colors.red,
-                  isDark: isDark,
-                  onTap: () {
-                    Navigator.pop(context);
-                    _handleLogout();
-                  },
-                ),
-              const SizedBox(height: 24),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildOptionItem({
-    required IconData icon,
-    required String title,
-    required Color color,
-    required bool isDark,
-    required VoidCallback onTap,
-  }) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      decoration: BoxDecoration(
-        color: isDark ? Colors.grey.shade800 : Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    icon,
-                    color: color,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                    color: isDark ? Colors.white : Colors.black87,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF7F7FC),
-      body: RefreshIndicator(
-        onRefresh: () async {
-          await _loadRooms(silent: true);
+          return dependencies.scope(
+            child: FTheme(data: foruiTheme, child: appChild),
+          );
         },
-        child: CustomScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [
-            _buildAppBar(),
-            SliverPadding(
-              padding: const EdgeInsets.all(16),
-              sliver: _isLoading
-                  ? const SliverFillRemaining(
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  : !_isLoggedIn
-                      ? SliverFillRemaining(
-                          child: Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                CircleAvatar(
-                                  radius: 40,
-                                  backgroundColor: const Color(0xFFE0E0FF),
-                                  backgroundImage: const AssetImage('assets/icon/robot_3.png'),
-                                  child: Container(),
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  '请先登录以使用功能',
-                                  style: TextStyle(
-                                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                const SizedBox(height: 24),
-                                ElevatedButton.icon(
-                                  onPressed: _showLoginDialog,
-                                  icon: const Icon(Icons.login),
-                                  label: const Text('立即登录'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF5D5FEF),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(24),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      : _rooms.isEmpty
-                    ? SliverFillRemaining(
-                        child: Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              CircleAvatar(
-                                radius: 40,
-                                backgroundColor: const Color(0xFFE0E0FF),
-                                backgroundImage: const AssetImage('assets/icon/robot_3.png'),
-                                child: Container(),
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                '暂无房间，快去创建一个吧！',
-                                style: TextStyle(
-                                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              ElevatedButton(
-                                onPressed: () => _loadRooms(silent: false),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF5D5FEF),
-                                  foregroundColor: Colors.white,
-                                ),
-                                child: const Text('刷新列表'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    : SliverGrid(
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          childAspectRatio: 0.8,
-                          crossAxisSpacing: 16,
-                          mainAxisSpacing: 16,
-                        ),
-                        delegate: SliverChildBuilderDelegate(
-                          (context, index) => _buildRoomCard(_rooms[index], index),
-                          childCount: _rooms.length,
-                        ),
-                      ),
-          ),
-        ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showOptionsBottomSheet,
-        child: const Icon(Icons.add, color: Colors.white),
-        backgroundColor: const Color(0xFF5D5FEF),
+        home: AppShell(dependencies: dependencies.appShell),
       ),
     );
-  }
-
-  Widget _buildAppBar() {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return SliverAppBar(
-      expandedHeight: 120,
-      pinned: true,
-      elevation: 0,
-      backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF7F7FC),
-      automaticallyImplyLeading: false,
-      flexibleSpace: FlexibleSpaceBar(
-        titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
-        title: GestureDetector(
-          onLongPress: _showServerSettingsDialog,
-          child: Text(
-            '一起看',
-            style: TextStyle(
-              color: isDark ? Colors.white : Colors.black,
-              fontSize: 32, // Magnified as requested
-              fontWeight: FontWeight.bold,
-              letterSpacing: -0.5,
-            ),
-          ),
-        ),
-        background: Container(
-          color: isDark ? const Color(0xFF121212) : const Color(0xFFF7F7FC),
-          child: Stack(
-            children: [
-              Positioned(
-                right: -40,
-                top: -40,
-                child: Container(
-                  width: 200,
-                  height: 200,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: const Color(0xFF5D5FEF).withOpacity(0.03),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showServerSettingsDialog() {
-    final controller = TextEditingController(text: WatchTogetherService.baseUrl);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDark ? Colors.white : Colors.black87;
-
-    ChatUtils.showStyledDialog(
-      context: context,
-      title: '服务器设置',
-      icon: const Icon(Icons.dns_rounded, color: Color(0xFF5D5FEF)),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: controller,
-            style: TextStyle(color: textColor),
-            decoration: const InputDecoration(
-              labelText: '服务器地址',
-              hintText: '例如: https://tv.test.com/api',
-              labelStyle: TextStyle(color: Colors.grey),
-              prefixIcon: Icon(Icons.link, color: Colors.grey),
-              enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
-              focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF5D5FEF))),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '修改后可能需要重新登录',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-          ),
-        ],
-      ),
-      actions: [
-        ChatUtils.createCancelButton(context),
-        const SizedBox(width: 8),
-        ChatUtils.createConfirmButton(
-          context,
-          () async {
-            if (controller.text.isEmpty) {
-              MessageUtils.showWarning(context, '请输入服务器地址');
-              return;
-            }
-            await WatchTogetherService.setBaseUrl(controller.text);
-            if (mounted) {
-              Navigator.pop(context);
-              MessageUtils.showSuccess(context, '服务器地址已更新');
-              _loadRooms(silent: false);
-            }
-          },
-          text: '保存',
-        ),
-      ],
-    );
-  }
-
-  void _handleLogout() {
-    ChatUtils.showStyledDialog<bool>(
-      context: context,
-      title: '退出登录',
-      icon: const Icon(Icons.logout, color: Colors.red),
-      content: const Text('确定要退出当前账号吗？'),
-      actions: [
-        ChatUtils.createCancelButton(context),
-        const SizedBox(width: 8),
-        ChatUtils.createConfirmButton(
-          context,
-          () => Navigator.pop(context, true),
-          text: '退出',
-        ),
-      ],
-    ).then((confirm) async {
-      if (confirm == true) {
-        await WatchTogetherService.logout();
-        if (mounted) {
-          setState(() {
-            _isLoggedIn = false;
-            _currentUser = null;
-            _rooms = [];
-          });
-          MessageUtils.showSuccess(context, '已退出登录');
-        }
-      }
-    });
-  }
-
-  Future<void> _handleJoinRoom(WRoom room) async {
-    if (room.needPassword) {
-      final passwordController = TextEditingController();
-      final isDark = Theme.of(context).brightness == Brightness.dark;
-      final textColor = isDark ? Colors.white : Colors.black87;
-
-      final password = await ChatUtils.showStyledDialog<String>(
-        context: context,
-        title: '输入房间密码',
-        icon: const Icon(Icons.lock),
-        content: TextField(
-          controller: passwordController,
-          obscureText: true,
-          style: TextStyle(color: textColor),
-          decoration: const InputDecoration(
-            labelText: '密码',
-            prefixIcon: Icon(Icons.key),
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          ChatUtils.createCancelButton(context),
-          const SizedBox(width: 8),
-          ChatUtils.createConfirmButton(
-            context,
-            () => Navigator.pop(context, passwordController.text),
-            text: '确定',
-          ),
-        ],
-      );
-
-      if (password == null) return;
-      if (password.isEmpty) {
-        if (mounted) MessageUtils.showWarning(context, '请输入密码');
-        return;
-      }
-
-      try {
-        await WatchTogetherService.joinRoom(room.roomId, password);
-        if (mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => WatchTogetherRoomScreen(room: room),
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) MessageUtils.showError(context, '加入房间失败: $e');
-      }
-    } else {
-      try {
-        await WatchTogetherService.joinRoom(room.roomId, '');
-        if (mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => WatchTogetherRoomScreen(room: room),
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) MessageUtils.showError(context, '加入房间失败: $e');
-      }
-    }
-  }
-
-  Future<void> _handleDeleteRoom(WRoom room) async {
-    final confirm = await ChatUtils.showStyledDialog<bool>(
-      context: context,
-      title: '删除房间',
-      icon: const Icon(Icons.delete_outline, color: Colors.red),
-      content: Text('确定要删除房间 "${room.roomName}" 吗？此操作不可撤销。'),
-      actions: [
-        ChatUtils.createCancelButton(context),
-        const SizedBox(width: 8),
-        ChatUtils.createConfirmButton(
-          context,
-          () => Navigator.pop(context, true),
-          text: '删除',
-        ),
-      ],
-    );
-
-    if (confirm == true) {
-      try {
-        await WatchTogetherService.deleteRoom(room.roomId);
-        if (mounted) {
-          MessageUtils.showSuccess(context, '房间已删除');
-          _loadRooms(silent: true);
-        }
-      } catch (e) {
-        if (mounted) MessageUtils.showError(context, '删除失败: $e');
-      }
-    }
-  }
-
-  Widget _buildRoomCard(WRoom room, int index) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDark ? Colors.white : Colors.black87;
-    final subTextColor = isDark ? Colors.white54 : Colors.black54;
-    final cardColor = isDark ? const Color(0xFF2C2C2C) : _cardColors[index % _cardColors.length];
-    final accentColor = isDark ? Colors.white24 : Colors.black.withOpacity(0.05);
-
-    // Determine tag
-    String tagText = '';
-    Color tagColor = Colors.transparent;
-    Color tagTextColor = Colors.white;
-
-    if (room.hidden) {
-      tagText = '隐藏';
-      tagColor = Colors.grey.shade600;
-    } else {
-      tagText = '公开';
-      tagColor = const Color(0xFF5D5FEF);
-    }
-
-    return Container(
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: isDark 
-              ? Colors.black.withOpacity(0.3)
-              : Colors.grey.withOpacity(0.1),
-            blurRadius: isDark ? 8 : 12,
-            spreadRadius: 0,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(24),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => _handleJoinRoom(room),
-          onLongPress: () {
-            if (_currentUser != null && _currentUser!.id == room.creatorId) {
-              _handleDeleteRoom(room);
-            }
-          },
-          child: Stack(
-          children: [
-            // Decorative background circle
-            Positioned(
-              right: -20,
-              top: -20,
-              child: Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: accentColor,
-                ),
-              ),
-            ),
-            // Tag
-            if (tagText.isNotEmpty)
-              Positioned(
-                top: 12,
-                right: 12,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: tagColor,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    tagText,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: tagTextColor,
-                    ),
-                  ),
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.6),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.movie_filter_rounded,
-                              color: Color(0xFF5D5FEF),
-                              size: 24,
-                            ),
-                          ),
-                          if (room.needPassword)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.05),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Icon(Icons.lock, size: 14, color: Colors.black54),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        room.roomName,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                          color: textColor,
-                          height: 1.2,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.6),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.group_rounded, size: 14, color: Colors.grey[700]),
-                            const SizedBox(width: 4),
-                            Text(
-                              '${room.viewerCount}人',
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey[800]),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.arrow_forward_rounded,
-                          size: 16,
-                          color: Color(0xFF5D5FEF),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-}
-
-class LoginDialog extends StatefulWidget {
-  const LoginDialog({super.key});
-
-  @override
-  State<LoginDialog> createState() => _LoginDialogState();
-}
-
-class _LoginDialogState extends State<LoginDialog> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  final _usernameController = TextEditingController();
-  final _passwordController = TextEditingController();
-  bool _isLoading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    _usernameController.dispose();
-    _passwordController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.maxFinite,
-      height: 320,
-      child: Column(
-        children: [
-          TabBar(
-            controller: _tabController,
-            labelColor: const Color(0xFF5D5FEF),
-            unselectedLabelColor: Colors.grey,
-            indicatorColor: const Color(0xFF5D5FEF),
-            tabs: const [
-              Tab(text: '登录'),
-              Tab(text: '注册'),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildForm('登录'),
-                _buildForm('注册'),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildForm(String buttonText) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDark ? Colors.white : Colors.black87;
-
-    return Column(
-      children: [
-        TextField(
-          controller: _usernameController,
-          style: TextStyle(color: textColor),
-          decoration: const InputDecoration(
-            labelText: '用户名',
-            labelStyle: TextStyle(color: Colors.grey),
-            prefixIcon: Icon(Icons.person_outline, color: Colors.grey),
-            enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
-            focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF5D5FEF))),
-          ),
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _passwordController,
-          style: TextStyle(color: textColor),
-          decoration: const InputDecoration(
-            labelText: '密码',
-            labelStyle: TextStyle(color: Colors.grey),
-            prefixIcon: Icon(Icons.lock_outline, color: Colors.grey),
-            enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
-            focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF5D5FEF))),
-          ),
-          obscureText: true,
-        ),
-        const SizedBox(height: 24),
-        SizedBox(
-          width: double.infinity,
-          height: 48,
-          child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : ChatUtils.createConfirmButton(
-                  context,
-                  _submit,
-                  text: buttonText,
-                ),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _submit() async {
-    final username = _usernameController.text;
-    final password = _passwordController.text;
-
-    if (username.isEmpty || password.isEmpty) {
-      MessageUtils.showWarning(context, '请输入用户名和密码');
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      if (_tabController.index == 0) {
-        // Login
-        await WatchTogetherService.login(username, password);
-        Navigator.pop(context, true);
-      } else {
-        // Register
-        await WatchTogetherService.register(username, password);
-        // Auto login after register
-        await WatchTogetherService.login(username, password);
-        Navigator.pop(context, true);
-      }
-    } catch (e) {
-      MessageUtils.showError(context, '操作失败: $e');
-      setState(() {
-        _isLoading = false;
-      });
-    }
   }
 }
