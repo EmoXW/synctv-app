@@ -91,9 +91,24 @@ void main() {
         isTrue,
       );
       expect(shouldUseNativeAppleOAuth(provider, TargetPlatform.iOS), isFalse);
-      expect(shouldUseAppleSignInButton(provider, TargetPlatform.iOS), isTrue);
+      expect(shouldUseAppleSignInButton(provider, TargetPlatform.iOS), isFalse);
     },
   );
+
+  test('uses the native Apple button only when native mode is advertised', () {
+    const provider = OAuth2ProviderOption(
+      name: 'apple',
+      type: 'apple',
+      signupEnabled: true,
+      signupNeedReview: false,
+      supportedModes: [
+        oauth2_enum.OAuth2ProviderMode.OAUTH2_PROVIDER_MODE_NATIVE,
+      ],
+    );
+
+    expect(shouldUseAppleSignInButton(provider, TargetPlatform.iOS), isTrue);
+    expect(shouldUseAppleSignInButton(provider, TargetPlatform.macOS), isTrue);
+  });
 
   testWidgets('renders provider brand icon data as a vector font glyph', (
     tester,

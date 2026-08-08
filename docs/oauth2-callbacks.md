@@ -54,20 +54,23 @@ macOS 14.4 or newer.
 
 ## Native Sign in with Apple
 
-iOS and macOS use `ASAuthorizationAppleIDProvider` for native Sign in with
-Apple. This flow omits `redirectUrl` and does not use
+iOS and Mac App Store builds use `ASAuthorizationAppleIDProvider` for native
+Sign in with Apple. This flow omits `redirectUrl` and does not use
 `SYNCTV_OAUTH2_APP_LINK_ORIGIN` or `/.well-known/apple-app-site-association`.
-The client sends `native=true` when starting authorization; the server uses
-the configured `nativeClientId` and `nativeClientSecret` to exchange Apple's
-authorization code.
+macOS Developer ID builds use the browser flow because Developer ID profiles do
+not carry the restricted native Apple entitlement. Native clients send
+`native=true` when starting authorization; the server uses the configured
+`nativeClientId` and `nativeClientSecret` to exchange Apple's authorization
+code.
 
 The server advertises provider capabilities in `GET /api/oauth2/providers`.
 When the Apple instance includes both `browser` and `native` in
-`supportedModes`, iOS and macOS choose native authorization. When only
-`browser` is configured, the same Apple button automatically starts the
-browser session through `ASWebAuthenticationSession`. Android, Windows, Linux,
-and web choose browser authorization. The client hides a provider when its
-supported modes cannot run on the current platform.
+`supportedModes`, iOS and Mac App Store builds choose native authorization.
+macOS Developer ID builds choose browser authorization. When only `browser` is
+configured, the same Apple button automatically starts the browser session
+through `ASWebAuthenticationSession`. Android, Windows, Linux, and web choose
+browser authorization. The client hides a provider when its supported modes
+cannot run on the current platform.
 
 The official app Bundle ID is `org.synctv.app`. A self-hosted operator normally
 cannot obtain the official Apple Developer Team credentials, so a self-hosted

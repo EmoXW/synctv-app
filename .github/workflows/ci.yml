@@ -264,6 +264,7 @@ jobs:
           flutter build macos \
             --release \
             --no-pub \
+            --dart-define SYNCTV_NATIVE_APPLE_SIGN_IN=false \
             --split-debug-info build/symbols/macos-universal
           bash tool/ci/verify_macos_architecture.sh \
             build/macos/Build/Products/Release/SyncTV.app universal
