@@ -7,6 +7,7 @@ CONFIGURATION="${3:-Debug}"
 SIGNING_TEAM="${4:-}"
 OAUTH2_ORIGIN=""
 PASSKEY_RP_IDS=""
+NATIVE_APPLE_SIGN_IN=""
 
 decode_define() {
   printf '%s' "$1" | base64 --decode 2>/dev/null ||
@@ -23,6 +24,9 @@ if [[ -n "${DART_DEFINES:-}" ]]; then
         ;;
       SYNCTV_PASSKEY_RP_IDS=*)
         PASSKEY_RP_IDS="${decoded#SYNCTV_PASSKEY_RP_IDS=}"
+        ;;
+      SYNCTV_NATIVE_APPLE_SIGN_IN=*)
+        NATIVE_APPLE_SIGN_IN="${decoded#SYNCTV_NATIVE_APPLE_SIGN_IN=}"
         ;;
     esac
   done
@@ -115,7 +119,20 @@ EOF
     exit 1
   fi
 
-  if [[ -n "$SIGNING_TEAM" ]]; then
+  # Developer ID release builds explicitly disable the restricted entitlement;
+  # local development and Store builds keep native Apple authorization enabled.
+  native_apple_enabled=true
+  if [[ -n "$NATIVE_APPLE_SIGN_IN" ]]; then
+    case "$NATIVE_APPLE_SIGN_IN" in
+      true) native_apple_enabled=true ;;
+      false) native_apple_enabled=false ;;
+      *)
+        echo "SYNCTV_NATIVE_APPLE_SIGN_IN must be true or false" >&2
+        exit 1
+        ;;
+    esac
+  fi
+  if [[ "$native_apple_enabled" == true && -n "$SIGNING_TEAM" ]]; then
     cat <<'EOF'
 	<key>com.apple.developer.applesignin</key>
 	<array>

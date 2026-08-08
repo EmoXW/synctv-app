@@ -1918,8 +1918,8 @@ class _AuthPanelState extends State<AuthPanel> with TickerProviderStateMixin {
                     platform: defaultTargetPlatform,
                     browserAvailable: browserAvailable,
                     nativeAvailable: nativeAvailable,
-                  ) !=
-                  null &&
+                  ) ==
+                  OAuth2ClientAuthorizationMode.native &&
               shouldUseAppleSignInButton(provider, defaultTargetPlatform)) ...[
             AppleSignInButton(
               enabled: !_loading,

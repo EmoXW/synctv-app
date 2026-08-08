@@ -246,12 +246,18 @@ final class _DarwinOAuth2CallbackSession implements OAuth2CallbackSession {
 final class PlatformNativeAppleSignInClient implements NativeAppleSignInClient {
   const PlatformNativeAppleSignInClient();
 
+  static const _buildEnabled = bool.fromEnvironment(
+    'SYNCTV_NATIVE_APPLE_SIGN_IN',
+    defaultValue: true,
+  );
+
   static const MethodChannel _channel = MethodChannel(
     'org.synctv.app/apple_sign_in',
   );
 
   @override
   bool get isSupported =>
+      _buildEnabled &&
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.iOS ||
           defaultTargetPlatform == TargetPlatform.macOS);

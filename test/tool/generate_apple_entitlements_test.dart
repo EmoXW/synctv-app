@@ -60,6 +60,62 @@ void main() {
       },
       skip: Platform.isWindows,
     );
+
+    test(
+      'omits native Apple entitlement for Developer ID macOS builds',
+      () async {
+        final outputDirectory = await Directory.systemTemp.createTemp(
+          'synctv-entitlements-developer-id-test-',
+        );
+        addTearDown(() => outputDirectory.delete(recursive: true));
+        final output = File('${outputDirectory.path}/Generated.entitlements');
+
+        await _runGenerator(
+          output: output,
+          defines: _encodeDefines(
+            oauth2Origin: '',
+            passkeyRpIds: '',
+            nativeAppleSignIn: false,
+          ),
+        );
+
+        final document = XmlDocument.parse(await output.readAsString());
+        final keys = document
+            .findAllElements('key')
+            .map((element) => element.innerText)
+            .toList(growable: false);
+        expect(keys, isNot(contains('com.apple.developer.applesignin')));
+      },
+      skip: Platform.isWindows,
+    );
+
+    test(
+      'includes native Apple entitlement when explicitly enabled',
+      () async {
+        final outputDirectory = await Directory.systemTemp.createTemp(
+          'synctv-entitlements-native-apple-test-',
+        );
+        addTearDown(() => outputDirectory.delete(recursive: true));
+        final output = File('${outputDirectory.path}/Generated.entitlements');
+
+        await _runGenerator(
+          output: output,
+          defines: _encodeDefines(
+            oauth2Origin: '',
+            passkeyRpIds: '',
+            nativeAppleSignIn: true,
+          ),
+        );
+
+        final document = XmlDocument.parse(await output.readAsString());
+        final keys = document
+            .findAllElements('key')
+            .map((element) => element.innerText)
+            .toList(growable: false);
+        expect(keys, contains('com.apple.developer.applesignin'));
+      },
+      skip: Platform.isWindows,
+    );
   });
 }
 
@@ -89,11 +145,18 @@ Future<List<String>> _generateAssociatedDomains({
 String _encodeDefines({
   required String oauth2Origin,
   required String passkeyRpIds,
+  bool? nativeAppleSignIn,
 }) {
-  return [
+  final values = [
     'SYNCTV_OAUTH2_APP_LINK_ORIGIN=$oauth2Origin',
     'SYNCTV_PASSKEY_RP_IDS=$passkeyRpIds',
-  ].map((value) => base64Encode(utf8.encode(value))).join(',');
+  ];
+  if (nativeAppleSignIn != null) {
+    values.add(
+      'SYNCTV_NATIVE_APPLE_SIGN_IN=${nativeAppleSignIn ? 'true' : 'false'}',
+    );
+  }
+  return values.map((value) => base64Encode(utf8.encode(value))).join(',');
 }
 
 Future<void> _runGenerator({

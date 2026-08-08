@@ -37,7 +37,7 @@ bool shouldUseAppleSignInButton(
   TargetPlatform platform,
 ) {
   return !kIsWeb &&
-      isAppleOAuthProvider(provider) &&
+      isNativeAppleOAuthProvider(provider) &&
       supportsNativeAppleSignInButton(platform);
 }
 

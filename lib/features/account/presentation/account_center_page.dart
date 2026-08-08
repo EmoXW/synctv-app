@@ -3078,8 +3078,8 @@ class _AccountCenterPageState extends State<AccountCenterPage>
                                     platform: defaultTargetPlatform,
                                     browserAvailable: browserAvailable,
                                     nativeAvailable: nativeAvailable,
-                                  ) !=
-                                  null &&
+                                  ) ==
+                                  OAuth2ClientAuthorizationMode.native &&
                               shouldUseAppleSignInButton(
                                 provider,
                                 defaultTargetPlatform,
