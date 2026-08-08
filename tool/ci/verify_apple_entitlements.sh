@@ -36,18 +36,22 @@ for purpose_key in \
   fi
 done
 
+if [[ -f "$app_path/Contents/Info.plist" ]]; then
+  jq -e '.["com.apple.security.network.server"] == true' \
+    "$entitlements_json" >/dev/null || {
+    echo "Sandboxed macOS app is missing the network server entitlement for its loopback P2P gateway" >&2
+    exit 1
+  }
+elif jq -e '.["com.apple.security.network.server"] == true' \
+  "$entitlements_json" >/dev/null; then
+  echo "iOS app must not contain the network server entitlement" >&2
+  exit 1
+fi
+
 if jq -e '.["com.apple.security.app-sandbox"] == true' \
   "$entitlements_json" >/dev/null; then
   jq -e '.["com.apple.security.network.client"] == true' \
     "$entitlements_json" >/dev/null
-  jq -e '.["com.apple.security.network.server"] == true' \
-    "$entitlements_json" >/dev/null
-else
-  if jq -e '.["com.apple.security.network.server"] == true' \
-    "$entitlements_json" >/dev/null; then
-    echo "iOS app contains the macOS-only network server entitlement" >&2
-    exit 1
-  fi
 fi
 
 if [[ -n "$rp_ids" ]]; then
