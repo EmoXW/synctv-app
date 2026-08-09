@@ -1,7 +1,10 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:synctv_app/l10n/l10n.dart';
 import 'package:synctv_app/contracts/synctv_models.dart';
 import 'package:synctv_app/core/presentation/widgets/app_form_controls.dart';
+import 'package:synctv_app/features/room/presentation/widgets/player_control_popup_style.dart';
 import 'package:synctv_video_player_media_kit/synctv_video_player_media_kit.dart';
 
 class PlaybackOptionsControl extends StatefulWidget {
@@ -40,86 +43,106 @@ class _PlaybackOptionsControlState extends State<PlaybackOptionsControl> {
   @override
   Widget build(BuildContext context) {
     return Builder(
-      builder: (anchorContext) => Semantics(
-        button: true,
-        label: widget.tooltip,
-        child: AppTooltip(
-          message: widget.tooltip,
-          child: InkWell(
-            key: Key(
-              widget.compact
-                  ? 'playback_route_button_compact'
-                  : 'playback_route_button',
-            ),
-            borderRadius: BorderRadius.circular(16),
-            onTap: () => _openMenu(anchorContext),
-            child: Container(
-              constraints: BoxConstraints(
-                minWidth: widget.compact ? 32 : 0,
-                minHeight: widget.compact ? 32 : 30,
-              ),
-              padding: EdgeInsets.symmetric(
-                horizontal: widget.compact ? 7 : 10,
-              ),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white24),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.route_rounded,
-                    size: 18,
-                    color: Colors.white,
+      builder: (anchorContext) {
+        final button = widget.compact
+            ? InkWell(
+                key: const Key('playback_route_button_compact'),
+                borderRadius: BorderRadius.circular(20),
+                hoverColor: Colors.white12,
+                focusColor: Colors.white12,
+                highlightColor: Colors.white24,
+                onTap: () => _openMenu(anchorContext),
+                child: const SizedBox.square(
+                  dimension: 40,
+                  child: Center(
+                    child: Icon(
+                      Icons.route_rounded,
+                      size: 20,
+                      color: Colors.white,
+                    ),
                   ),
-                  if (!widget.compact) ...[
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        _modeLabel(
-                          _selectedMode,
-                          mediaIndex: widget.selectedMediaIndex,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
+                ),
+              )
+            : InkWell(
+                key: const Key('playback_route_button'),
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => _openMenu(anchorContext),
+                child: Container(
+                  constraints: const BoxConstraints(minHeight: 30),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.route_rounded,
+                        size: 18,
+                        color: Colors.white,
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          _modeLabel(
+                            _selectedMode,
+                            mediaIndex: widget.selectedMediaIndex,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+                    ],
+                  ),
+                ),
+              );
+        return Semantics(
+          button: true,
+          label: widget.tooltip,
+          child: AppTooltip(message: widget.tooltip, child: button),
+        );
+      },
     );
   }
 
   Future<void> _openMenu(BuildContext anchorContext) async {
-    final position = _menuPosition(anchorContext);
+    final qualityItems = _buildQualityMenu();
+    var position = _menuPosition(
+      anchorContext,
+      menuHeight: _menuHeight(qualityItems),
+    );
     if (position == null) return;
     var action = await showMenu<_PlaybackMenuAction>(
       context: context,
       useRootNavigator: true,
+      popUpAnimationStyle: playerControlPopupAnimationStyle,
       color: const Color(0xF21A1D21),
       constraints: const BoxConstraints(minWidth: 240, maxWidth: 320),
       position: position,
-      items: _buildQualityMenu(),
+      items: qualityItems,
     );
-    if (!mounted || action == null) return;
+    if (!mounted || !anchorContext.mounted || action == null) return;
     if (action.kind == _PlaybackMenuActionKind.routes) {
+      final routeItems = _buildRouteMenu();
+      position = _menuPosition(
+        anchorContext,
+        menuHeight: _menuHeight(routeItems),
+      );
+      if (position == null) return;
       action = await showMenu<_PlaybackMenuAction>(
         context: context,
         useRootNavigator: true,
+        popUpAnimationStyle: playerControlPopupAnimationStyle,
         color: const Color(0xF21A1D21),
         constraints: const BoxConstraints(minWidth: 240, maxWidth: 320),
         position: position,
-        items: _buildRouteMenu(),
+        items: routeItems,
       );
       if (!mounted || action == null) return;
     }
@@ -133,7 +156,10 @@ class _PlaybackOptionsControlState extends State<PlaybackOptionsControl> {
     }
   }
 
-  RelativeRect? _menuPosition(BuildContext anchorContext) {
+  RelativeRect? _menuPosition(
+    BuildContext anchorContext, {
+    required double menuHeight,
+  }) {
     final renderBox = anchorContext.findRenderObject() as RenderBox?;
     final overlay =
         Navigator.of(
@@ -147,12 +173,19 @@ class _PlaybackOptionsControlState extends State<PlaybackOptionsControl> {
       renderBox.size.bottomRight(Offset.zero),
       ancestor: overlay,
     );
+    final menuTop = (topLeft.dy - menuHeight - 8)
+        .clamp(8.0, max(8.0, overlay.size.height - menuHeight - 8))
+        .toDouble();
     return RelativeRect.fromLTRB(
       topLeft.dx,
-      topLeft.dy - 8,
+      menuTop,
       overlay.size.width - bottomRight.dx,
       overlay.size.height - bottomRight.dy + 8,
     );
+  }
+
+  double _menuHeight<T>(List<PopupMenuEntry<T>> items) {
+    return 16 + items.fold<double>(0, (height, item) => height + item.height);
   }
 
   List<PopupMenuEntry<_PlaybackMenuAction>> _buildQualityMenu() {

@@ -24,6 +24,7 @@ import 'package:synctv_app/features/room/application/player_volume_preferences_c
 import 'package:synctv_app/contracts/synctv_models.dart';
 import 'package:synctv_app/features/room/presentation/widgets/playback_context_menu.dart';
 import 'package:synctv_app/features/room/presentation/widgets/playback_diagnostics.dart';
+import 'package:synctv_app/features/room/presentation/widgets/player_control_popup_style.dart';
 
 class DanmakuController extends ChangeNotifier {
   DanmakuController(
@@ -369,7 +370,8 @@ class CustomVideoPlayer extends StatefulWidget {
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
   final VoidCallback? onEnterPictureInPicture;
-  final VoidCallback? onOpenFreeModeSettings;
+  final bool freeModeEnabled;
+  final ValueChanged<bool>? onFreeModeChanged;
   final ValueChanged<bool>? onUserPlaybackStateChanged;
   final ValueChanged<Duration>? onUserSeek;
   final ValueChanged<double>? onUserPlaybackSpeedChanged;
@@ -412,7 +414,8 @@ class CustomVideoPlayer extends StatefulWidget {
     this.onPrevious,
     this.onNext,
     this.onEnterPictureInPicture,
-    this.onOpenFreeModeSettings,
+    this.freeModeEnabled = false,
+    this.onFreeModeChanged,
     this.onUserPlaybackStateChanged,
     this.onUserSeek,
     this.onUserPlaybackSpeedChanged,
@@ -467,7 +470,7 @@ class PlaybackNavigationControls extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        AppIconButton(
+        _PlayerIconButton(
           key: const Key('playback_previous_button'),
           icon: Icons.skip_previous_rounded,
           tooltip: previousTooltip,
@@ -477,7 +480,7 @@ class PlaybackNavigationControls extends StatelessWidget {
         ),
         SizedBox(width: gap),
         if (center != null) ...[center!, SizedBox(width: gap)],
-        AppIconButton(
+        _PlayerIconButton(
           key: const Key('playback_next_button'),
           icon: Icons.skip_next_rounded,
           tooltip: nextTooltip,
@@ -504,7 +507,7 @@ class PictureInPictureControl extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppIconButton(
+    return _PlayerIconButton(
       key: const Key('picture_in_picture_button'),
       icon: Icons.picture_in_picture_alt_rounded,
       tooltip: tooltip,
@@ -523,37 +526,115 @@ class _PlayerIconButton extends StatelessWidget {
     required this.onPressed,
     this.iconSize = 20,
     this.constraints = const BoxConstraints.tightFor(width: 40, height: 40),
+    this.padding = EdgeInsets.zero,
+    this.selected = false,
+    this.showTooltip = true,
   });
 
   final IconData icon;
   final String tooltip;
   final VoidCallback? onPressed;
   final double iconSize;
-  final BoxConstraints constraints;
+  final BoxConstraints? constraints;
+  final EdgeInsetsGeometry padding;
+  final bool selected;
+  final bool showTooltip;
 
   @override
   Widget build(BuildContext context) {
+    Widget button = IconButton(
+      onPressed: onPressed,
+      padding: padding,
+      constraints: const BoxConstraints(),
+      icon: Icon(icon),
+      style: IconButton.styleFrom(
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        foregroundColor: Colors.white,
+        disabledForegroundColor: Colors.white60,
+        backgroundColor: selected ? Colors.white24 : Colors.transparent,
+        hoverColor: Colors.white12,
+        focusColor: Colors.white12,
+        highlightColor: Colors.white24,
+      ),
+      iconSize: iconSize,
+    );
+    if (constraints != null) {
+      button = ConstrainedBox(constraints: constraints!, child: button);
+    }
+    button = ExcludeSemantics(child: button);
     return Semantics(
       button: true,
       enabled: onPressed != null,
       label: tooltip,
       onTap: onPressed,
-      child: AppTooltip(
-        message: tooltip,
-        child: ExcludeSemantics(
-          child: IconButton(
-            onPressed: onPressed,
-            padding: EdgeInsets.zero,
-            constraints: constraints,
-            icon: Icon(icon),
-            style: IconButton.styleFrom(
-              foregroundColor: Colors.white,
-              // Disabled navigation remains discoverable against the black
-              // player surface while retaining a clear enabled/disabled state.
-              disabledForegroundColor: Colors.white60,
+      child: showTooltip ? AppTooltip(message: tooltip, child: button) : button,
+    );
+  }
+}
+
+class _PlayerControlsPopupEntry extends PopupMenuEntry<bool> {
+  const _PlayerControlsPopupEntry({
+    super.key,
+    required this.entryHeight,
+    required this.child,
+  });
+
+  final double entryHeight;
+  final Widget child;
+
+  @override
+  double get height => entryHeight;
+
+  @override
+  bool represents(bool? value) => false;
+
+  @override
+  State<_PlayerControlsPopupEntry> createState() =>
+      _PlayerControlsPopupEntryState();
+}
+
+class _PlayerControlsPopupEntryState extends State<_PlayerControlsPopupEntry> {
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
+class _PlayerOverflowSwitchRow extends StatelessWidget {
+  const _PlayerOverflowSwitchRow({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(4),
+      onTap: () => onChanged(!value),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: Colors.white),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+              ),
             ),
-            iconSize: iconSize,
-          ),
+            Switch(value: value, onChanged: onChanged),
+          ],
         ),
       ),
     );
@@ -626,17 +707,24 @@ class PictureInPicturePlaybackOptionsControl extends StatelessWidget {
       renderBox.size.bottomRight(Offset.zero),
       ancestor: overlay,
     );
+    final items = _buildChoices();
+    final menuHeight =
+        16.0 + items.fold<double>(0, (height, item) => height + item.height);
+    final menuTop = (topLeft.dy - menuHeight - 8)
+        .clamp(8.0, max(8.0, overlay.size.height - menuHeight - 8))
+        .toDouble();
     final selected = await showMenu<String>(
       context: anchorContext,
       useRootNavigator: true,
+      popUpAnimationStyle: playerControlPopupAnimationStyle,
       color: const Color(0xF21A1A24),
       position: RelativeRect.fromLTRB(
         topLeft.dx,
-        topLeft.dy - 8,
+        menuTop,
         overlay.size.width - bottomRight.dx,
         overlay.size.height - bottomRight.dy + 8,
       ),
-      items: _buildChoices(),
+      items: items,
     );
     if (selected != null) onSelected(selected);
   }
@@ -713,6 +801,7 @@ class PictureInPicturePlaybackSurface extends StatefulWidget {
     this.liveStartedAt,
     this.canControlPlayback = false,
     this.onPlaybackStateChanged,
+    this.onPlaybackSpeedChanged,
     this.onSeek,
     this.isPlaybackExpectedToBePlaying,
     this.onSync,
@@ -734,6 +823,7 @@ class PictureInPicturePlaybackSurface extends StatefulWidget {
   final int? liveStartedAt;
   final bool canControlPlayback;
   final ValueChanged<bool>? onPlaybackStateChanged;
+  final ValueChanged<double>? onPlaybackSpeedChanged;
   final ValueChanged<Duration>? onSeek;
   final ValueGetter<bool>? isPlaybackExpectedToBePlaying;
   final VoidCallback? onSync;
@@ -750,20 +840,23 @@ class PictureInPicturePlaybackSurface extends StatefulWidget {
 class _PictureInPicturePlaybackSurfaceState
     extends State<PictureInPicturePlaybackSurface> {
   bool _showControls = false;
-  bool _showVolumeSlider = false;
-  double _lastAudibleVolume = 1;
   double? _pendingSeekSeconds;
 
   Future<void> _setVolume(double volume) async {
     final controller = widget.controller;
     if (controller == null || !controller.value.isInitialized) return;
-    if (volume > 0.01) _lastAudibleVolume = volume;
     await controller.setVolume(volume);
   }
 
-  void _toggleMute() {
-    final volume = widget.controller?.value.volume ?? 0;
-    unawaited(_setVolume(volume <= 0.01 ? _lastAudibleVolume : 0));
+  Future<void> _setPlaybackSpeed(double speed) async {
+    final controller = widget.controller;
+    if (!widget.canControlPlayback ||
+        controller == null ||
+        !controller.value.isInitialized) {
+      return;
+    }
+    await controller.setPlaybackSpeed(speed);
+    widget.onPlaybackSpeedChanged?.call(speed);
   }
 
   @override
@@ -823,6 +916,153 @@ class _PictureInPicturePlaybackSurfaceState
       icon: icon,
       iconSize: 18,
       constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+    );
+  }
+
+  RelativeRect? _controlMenuPosition(
+    BuildContext anchorContext, {
+    required double menuWidth,
+    required double menuHeight,
+  }) {
+    final renderBox = anchorContext.findRenderObject() as RenderBox?;
+    final overlayBox =
+        Navigator.of(
+              context,
+              rootNavigator: true,
+            ).overlay?.context.findRenderObject()
+            as RenderBox?;
+    if (renderBox == null || overlayBox == null || !renderBox.hasSize) {
+      return null;
+    }
+    final topLeft = renderBox.localToGlobal(Offset.zero, ancestor: overlayBox);
+    final left = (topLeft.dx + (renderBox.size.width - menuWidth) / 2)
+        .clamp(8.0, max(8.0, overlayBox.size.width - menuWidth - 8))
+        .toDouble();
+    final top = (topLeft.dy - menuHeight - 4)
+        .clamp(8.0, max(8.0, overlayBox.size.height - menuHeight - 8))
+        .toDouble();
+    return RelativeRect.fromLTRB(
+      left,
+      top,
+      overlayBox.size.width - left - menuWidth,
+      overlayBox.size.height - topLeft.dy + 4,
+    );
+  }
+
+  Future<void> _openVolumeMenu(BuildContext anchorContext) async {
+    const menuWidth = 54.0;
+    const menuHeight = 112.0;
+    final position = _controlMenuPosition(
+      anchorContext,
+      menuWidth: menuWidth,
+      menuHeight: menuHeight,
+    );
+    final controller = widget.controller;
+    if (position == null || controller == null) return;
+    await showMenu<bool>(
+      context: context,
+      useRootNavigator: true,
+      popUpAnimationStyle: playerControlPopupAnimationStyle,
+      color: const Color(0xF21A1A24),
+      constraints: const BoxConstraints.tightFor(width: menuWidth),
+      position: position,
+      items: [
+        _PlayerControlsPopupEntry(
+          entryHeight: menuHeight,
+          child: ValueListenableBuilder<VideoPlayerValue>(
+            valueListenable: controller,
+            builder: (context, value, _) => SizedBox(
+              width: menuWidth,
+              height: menuHeight,
+              child: RotatedBox(
+                quarterTurns: 3,
+                child: Slider(
+                  key: const Key('picture_in_picture_volume_slider'),
+                  value: value.volume.clamp(0.0, 1.0),
+                  onChanged: (volume) => unawaited(_setVolume(volume)),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _openPlaybackSpeedMenu(
+    BuildContext anchorContext,
+    double currentSpeed,
+  ) async {
+    const menuWidth = 132.0;
+    const menuHeight = 148.0;
+    final position = _controlMenuPosition(
+      anchorContext,
+      menuWidth: menuWidth,
+      menuHeight: menuHeight,
+    );
+    if (position == null) return;
+    await showMenu<bool>(
+      context: context,
+      useRootNavigator: true,
+      popUpAnimationStyle: playerControlPopupAnimationStyle,
+      color: const Color(0xF21A1A24),
+      constraints: const BoxConstraints.tightFor(width: menuWidth),
+      position: position,
+      items: [
+        _PlayerControlsPopupEntry(
+          entryHeight: menuHeight,
+          child: SizedBox(
+            width: menuWidth,
+            height: menuHeight,
+            child: ScrollConfiguration(
+              behavior: ScrollConfiguration.of(
+                context,
+              ).copyWith(scrollbars: false),
+              child: ListView.builder(
+                key: const Key('picture_in_picture_speed_options_list'),
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                itemExtent: 36,
+                itemCount: playerPlaybackSpeedOptions.length,
+                itemBuilder: (context, index) {
+                  final speed = playerPlaybackSpeedOptions[index];
+                  final selected = (currentSpeed - speed).abs() < 0.001;
+                  return InkWell(
+                    key: ValueKey('picture_in_picture_speed_option_$speed'),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      unawaited(_setPlaybackSpeed(speed));
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Row(
+                        children: [
+                          Icon(
+                            selected
+                                ? Icons.radio_button_checked_rounded
+                                : Icons.radio_button_unchecked_rounded,
+                            size: 16,
+                            color: selected
+                                ? const Color(0xFF7CFFB2)
+                                : Colors.white70,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${speed.toStringAsFixed(speed == speed.roundToDouble() ? 0 : 2)}x',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -932,6 +1172,38 @@ class _PictureInPicturePlaybackSurfaceState
                         : context.l10n.sync,
                     onPressed: widget.onSync,
                   ),
+                if (value != null)
+                  Builder(
+                    builder: (anchorContext) => _buildTransportButton(
+                      key: const Key('picture_in_picture_volume_button'),
+                      icon: value.volume <= 0.01
+                          ? Icons.volume_off_rounded
+                          : Icons.volume_up_rounded,
+                      tooltip: widget.volumeTooltip ?? context.l10n.volume,
+                      onPressed: () =>
+                          unawaited(_openVolumeMenu(anchorContext)),
+                    ),
+                  ),
+                if (value != null && !widget.isLive)
+                  Builder(
+                    builder: (anchorContext) => _buildTransportButton(
+                      key: const Key(
+                        'picture_in_picture_playback_speed_button',
+                      ),
+                      icon: Icons.speed_rounded,
+                      tooltip: context.l10n.playbackSpeedValue(
+                        value.playbackSpeed.toStringAsFixed(2),
+                      ),
+                      onPressed: canToggle
+                          ? () => unawaited(
+                              _openPlaybackSpeedMenu(
+                                anchorContext,
+                                value.playbackSpeed,
+                              ),
+                            )
+                          : null,
+                    ),
+                  ),
                 if (widget.playbackOptionsControl != null)
                   KeyedSubtree(
                     key: const Key(
@@ -968,10 +1240,7 @@ class _PictureInPicturePlaybackSurfaceState
       color: Colors.black,
       child: MouseRegion(
         onEnter: (_) => setState(() => _showControls = true),
-        onExit: (_) => setState(() {
-          _showControls = false;
-          _showVolumeSlider = false;
-        }),
+        onExit: (_) => setState(() => _showControls = false),
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -1015,62 +1284,6 @@ class _PictureInPicturePlaybackSurfaceState
                 onDoubleTap: widget.onExit,
               ),
             ),
-            if (_showControls && videoController?.value.isInitialized == true)
-              Positioned(
-                right: 8,
-                bottom: 70,
-                child: ValueListenableBuilder<VideoPlayerValue>(
-                  valueListenable: videoController!,
-                  builder: (context, value, _) => MouseRegion(
-                    onEnter: (_) => setState(() => _showVolumeSlider = true),
-                    onExit: (_) => setState(() => _showVolumeSlider = false),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (_showVolumeSlider)
-                          Material(
-                            color: Colors.black.withValues(alpha: 0.62),
-                            borderRadius: BorderRadius.circular(18),
-                            child: SizedBox(
-                              width: 34,
-                              height: 94,
-                              child: RotatedBox(
-                                quarterTurns: 3,
-                                child: Slider(
-                                  key: const Key(
-                                    'picture_in_picture_volume_slider',
-                                  ),
-                                  value: value.volume.clamp(0.0, 1.0),
-                                  onChanged: (volume) =>
-                                      unawaited(_setVolume(volume)),
-                                ),
-                              ),
-                            ),
-                          ),
-                        const SizedBox(height: 4),
-                        Material(
-                          color: Colors.black.withValues(alpha: 0.62),
-                          shape: const CircleBorder(),
-                          child: _PlayerIconButton(
-                            key: const Key('picture_in_picture_volume_button'),
-                            onPressed: _toggleMute,
-                            tooltip:
-                                widget.volumeTooltip ?? context.l10n.volume,
-                            icon: value.volume <= 0.01
-                                ? Icons.volume_off_rounded
-                                : Icons.volume_up_rounded,
-                            iconSize: 18,
-                            constraints: const BoxConstraints.tightFor(
-                              width: 34,
-                              height: 34,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
             if (_showControls)
               Positioned(
                 left: 8,
@@ -1192,7 +1405,7 @@ class PlayerControlVisibility {
   }) {
     return PlayerControlVisibility(
       showTime: width >= 520,
-      showFullscreen: width >= 380,
+      showFullscreen: true,
       showVolume: desktop && width >= 460,
       showSync: width >= 520,
       showPlaybackRoute: width >= 600,
@@ -1322,7 +1535,6 @@ Duration livePlaybackPosition({
 class _CustomVideoPlayerState extends State<CustomVideoPlayer>
     with SingleTickerProviderStateMixin {
   bool _showControls = true;
-  bool _showOverflowControls = false;
   bool _showDetailedStatistics = false;
   Size _viewportSize = Size.zero;
   bool? _loopPlaybackOverride;
@@ -1333,10 +1545,19 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
   bool _isVerticalDragging = false;
   bool _showDanmaku = true;
   double _lastAudibleVolume = 1.0;
-  final LayerLink _volumeControlLink = LayerLink();
-  OverlayEntry? _volumeOverlayEntry;
   Timer? _volumeOverlayHideTimer;
-  bool _showVolumeSlider = false;
+  final GlobalKey _volumeAnchorKey = GlobalKey();
+  final GlobalKey<_PlaybackSpeedMenuButtonState> _speedMenuKey = GlobalKey();
+  OverlayEntry? _volumeOverlayEntry;
+  bool _isVolumeButtonHovered = false;
+  bool _isVolumeMenuHovered = false;
+  bool _isVolumeSliderDragging = false;
+  bool _isPlaybackSpeedMenuOpen = false;
+  bool _isDesktopPointerInside = false;
+  Future<bool?>? _overflowMenuFuture;
+
+  bool get _isVolumeControlHovered =>
+      _isVolumeButtonHovered || _isVolumeMenuHovered;
 
   // Gesture State
   double? _dragStartVolume;
@@ -1369,27 +1590,12 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
   @override
   void initState() {
     super.initState();
-    if (widget.isFullScreen) {
-      // Lock to landscape mode only for fullscreen
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-      // Delay setting immersive mode slightly to allow orientation to settle
-      Future.delayed(const Duration(milliseconds: 100), () {
-        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-      });
-    }
+    if (widget.isFullScreen) _applyFullScreenSystemUi(fullScreen: true);
     widget.controller.addListener(_videoListener);
     widget.danmakuController?.addListener(_onDanmakuUpdate);
     _restorePersistedVolume();
     _startHideTimer();
     unawaited(_loadDefaultSubtitles());
-    if (_isDesktopMode) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _insertVolumeOverlay();
-      });
-    }
   }
 
   void _onDanmakuUpdate() {
@@ -1399,6 +1605,9 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
   @override
   void didUpdateWidget(CustomVideoPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.isFullScreen != oldWidget.isFullScreen) {
+      _applyFullScreenSystemUi(fullScreen: widget.isFullScreen);
+    }
     if (widget.controller != oldWidget.controller) {
       oldWidget.controller.removeListener(_videoListener);
       widget.controller.addListener(_videoListener);
@@ -1431,16 +1640,6 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
       unawaited(_reloadSubtitleForPlaybackSelection());
     }
 
-    if (widget.interactionMode != oldWidget.interactionMode) {
-      if (_isDesktopMode) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _insertVolumeOverlay();
-        });
-      } else {
-        _removeVolumeOverlay();
-      }
-    }
-
     if (widget.loopPlayback != oldWidget.loopPlayback ||
         widget.shufflePlayback != oldWidget.shufflePlayback) {
       _loopPlaybackOverride = null;
@@ -1451,24 +1650,33 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
   @override
   void dispose() {
     if (widget.isFullScreen) {
-      // Restore orientation and UI mode when exiting fullscreen
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-        DeviceOrientation.portraitDown,
-      ]);
-      // Delay resetting UI mode slightly to allow orientation to settle
-      Future.delayed(const Duration(milliseconds: 100), () {
-        SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-      });
+      _applyFullScreenSystemUi(fullScreen: false);
     }
     widget.controller.removeListener(_videoListener);
     widget.danmakuController?.removeListener(_onDanmakuUpdate);
     _hideTimer?.cancel();
-    _volumeOverlayHideTimer?.cancel();
-    _removeVolumeOverlay();
+    _closeVolumeMenu();
+    _overflowMenuFuture = null;
     _subtitleTimer?.cancel();
     _subtitleLoadGeneration++;
     super.dispose();
+  }
+
+  void _applyFullScreenSystemUi({required bool fullScreen}) {
+    if (fullScreen) {
+      unawaited(
+        SystemChrome.setPreferredOrientations(const [
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]),
+      );
+      unawaited(
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky),
+      );
+      return;
+    }
+    unawaited(SystemChrome.setPreferredOrientations(const []));
+    unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
   }
 
   void _videoListener() {
@@ -1982,7 +2190,6 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
           !_isDesktopMode) {
         setState(() {
           _showControls = false;
-          _showOverflowControls = false;
         });
       }
     });
@@ -1990,30 +2197,61 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
 
   void _showDesktopControls() {
     if (!_isDesktopMode) return;
+    _isDesktopPointerInside = true;
     _hideTimer?.cancel();
     if (mounted && !_showControls) {
       setState(() => _showControls = true);
     }
   }
 
+  void _handleDesktopPointerHover(PointerHoverEvent event) {
+    _showDesktopControls();
+  }
+
+  void _hideDesktopControlsIfIdle() {
+    if (!mounted ||
+        !widget.controller.value.isPlaying ||
+        _isDragging ||
+        _isSliderDragging ||
+        _isVolumeControlHovered ||
+        _isVolumeSliderDragging ||
+        _isPlaybackSpeedMenuOpen ||
+        _isDesktopPointerInside) {
+      return;
+    }
+    setState(() {
+      _showControls = false;
+    });
+    _closeVolumeMenu();
+  }
+
+  void _scheduleDesktopControlsHide() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(
+      const Duration(milliseconds: 900),
+      _hideDesktopControlsIfIdle,
+    );
+  }
+
+  void _handlePlaybackSpeedMenuVisibilityChanged(bool isVisible) {
+    _isPlaybackSpeedMenuOpen = isVisible;
+    if (isVisible) {
+      _hideTimer?.cancel();
+    } else if (_isDesktopMode && !_isDesktopPointerInside) {
+      _scheduleDesktopControlsHide();
+    }
+  }
+
   void _handleDesktopPointerExit(PointerExitEvent event) {
     if (!_isDesktopMode) return;
+    _isDesktopPointerInside = false;
     if (!widget.controller.value.isPlaying) return;
-    _hideTimer?.cancel();
-    _hideTimer = Timer(const Duration(milliseconds: 900), () {
-      if (mounted && widget.controller.value.isPlaying && !_isSliderDragging) {
-        setState(() {
-          _showControls = false;
-          _showOverflowControls = false;
-        });
-      }
-    });
+    _scheduleDesktopControlsHide();
   }
 
   void _toggleControls() {
     setState(() {
       _showControls = !_showControls;
-      if (!_showControls) _showOverflowControls = false;
     });
     if (_showControls) _startHideTimer();
   }
@@ -2072,7 +2310,8 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
   }
 
   Widget _buildSubtitleControl(double iconSize) {
-    return AppIconButton(
+    return _PlayerIconButton(
+      key: const Key('playback_subtitles_button'),
       icon: Icons.closed_caption_rounded,
       tooltip: context.l10n.subtitles,
       onPressed: _showSubtitleMenu,
@@ -2082,25 +2321,42 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
     );
   }
 
-  Widget _buildSpeedControl(VideoPlayerValue value, double iconSize) {
+  Widget _buildSpeedControl(
+    VideoPlayerValue value,
+    double iconSize, {
+    VoidCallback? onChanged,
+    Key? key,
+  }) {
     return _PlaybackSpeedMenuButton(
+      key: key,
       currentSpeed: value.playbackSpeed,
       options: _playbackSpeedOptions(),
       dimension: widget.isFullScreen ? 40 : max(32.0, iconSize + 12),
       iconSize: widget.isFullScreen ? 24 : iconSize,
-      onSelected: _setPlaybackSpeedFromUser,
+      onMenuVisibilityChanged: _handlePlaybackSpeedMenuVisibilityChanged,
+      onSelected: (speed) async {
+        await _setPlaybackSpeedFromUser(speed);
+        onChanged?.call();
+      },
     );
   }
 
-  Widget _buildDanmakuControl(double iconSize) {
-    return AppIconButton(
+  void _toggleDanmaku() {
+    setState(() => _showDanmaku = !_showDanmaku);
+  }
+
+  Widget _buildDanmakuControl(double iconSize, {VoidCallback? onChanged}) {
+    return _PlayerIconButton(
+      key: const Key('playback_danmaku_button'),
       icon: Icons.comment_rounded,
       tooltip: _showDanmaku
           ? context.l10n.disableDanmaku
           : context.l10n.enableDanmaku,
       selected: _showDanmaku,
-      style: _showDanmaku ? AppIconButtonStyle.tonal : AppIconButtonStyle.ghost,
-      onPressed: () => setState(() => _showDanmaku = !_showDanmaku),
+      onPressed: () {
+        setState(() => _showDanmaku = !_showDanmaku);
+        onChanged?.call();
+      },
       padding: widget.isFullScreen ? const EdgeInsets.all(8) : EdgeInsets.zero,
       constraints: widget.isFullScreen ? null : const BoxConstraints(),
       iconSize: widget.isFullScreen ? 24 : iconSize,
@@ -2108,7 +2364,8 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
   }
 
   Widget _buildSyncControl(double iconSize) {
-    return AppIconButton(
+    return _PlayerIconButton(
+      key: const Key('playback_sync_button'),
       icon: widget.isLive ? Icons.refresh_rounded : Icons.sync_rounded,
       tooltip: widget.isLive ? context.l10n.reload : context.l10n.sync,
       onPressed: widget.onSync,
@@ -2118,20 +2375,217 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
     );
   }
 
-  Widget _buildFreeModeSettingsControl(double iconSize) {
-    return AppIconButton(
-      key: const Key('free_mode_settings_button'),
+  Future<void> _openOverflowMenu(
+    BuildContext anchorContext,
+    List<
+      ({
+        String label,
+        IconData icon,
+        Widget Function(VoidCallback onChanged) build,
+        VoidCallback? onPressed,
+        bool Function()? switchValue,
+        ValueChanged<bool>? onSwitchChanged,
+        bool dismissOnSwitch,
+      })
+    >
+    controls,
+  ) async {
+    if (_overflowMenuFuture != null) return;
+    final renderBox = anchorContext.findRenderObject() as RenderBox?;
+    final overlayBox =
+        Navigator.of(
+              context,
+              rootNavigator: true,
+            ).overlay?.context.findRenderObject()
+            as RenderBox?;
+    if (renderBox == null || overlayBox == null || !renderBox.hasSize) return;
+
+    final topLeft = renderBox.localToGlobal(Offset.zero, ancestor: overlayBox);
+    final bottomRight = renderBox.localToGlobal(
+      renderBox.size.bottomRight(Offset.zero),
+      ancestor: overlayBox,
+    );
+    final menuWidth = min(280.0, max(48.0, overlayBox.size.width - 16));
+    final menuLeft = (bottomRight.dx - menuWidth)
+        .clamp(8.0, max(8.0, overlayBox.size.width - menuWidth - 8))
+        .toDouble();
+    final controlsHeight = controls.fold<double>(
+      0,
+      (height, control) => height + (control.onSwitchChanged == null ? 40 : 52),
+    );
+    final contentHeight =
+        8.0 +
+        (widget.onFreeModeChanged == null ? 0 : 52.0) +
+        (controls.isEmpty
+            ? 0
+            : controlsHeight + max(0, controls.length - 1) * 4.0);
+    final menuHeight = 16.0 + contentHeight;
+    final menuTop = (topLeft.dy - menuHeight - 8)
+        .clamp(8.0, max(8.0, overlayBox.size.height - menuHeight - 8))
+        .toDouble();
+    var freeModeEnabled = widget.freeModeEnabled;
+
+    final future = showMenu<bool>(
+      context: context,
+      useRootNavigator: true,
+      popUpAnimationStyle: playerControlPopupAnimationStyle,
+      color: const Color(0xF21A1A24),
+      constraints: BoxConstraints.tightFor(width: menuWidth),
+      position: RelativeRect.fromLTRB(
+        menuLeft,
+        menuTop,
+        overlayBox.size.width - bottomRight.dx,
+        overlayBox.size.height - bottomRight.dy + 8,
+      ),
+      items: [
+        _PlayerControlsPopupEntry(
+          key: const Key('playback_overflow_controls'),
+          entryHeight: contentHeight,
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: StatefulBuilder(
+              builder: (context, setMenuState) => Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (widget.onFreeModeChanged != null)
+                    _PlayerOverflowSwitchRow(
+                      key: const Key('free_mode_toggle'),
+                      icon: Icons.explore_rounded,
+                      label: context.l10n.freeMode,
+                      value: freeModeEnabled,
+                      onChanged: (enabled) {
+                        setMenuState(() => freeModeEnabled = enabled);
+                        widget.onFreeModeChanged?.call(enabled);
+                      },
+                    ),
+                  if (controls.isNotEmpty) ...[
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (
+                          var index = 0;
+                          index < controls.length;
+                          index++
+                        ) ...[
+                          if (index > 0) const SizedBox(height: 4),
+                          if (controls[index].onSwitchChanged
+                              case final onSwitchChanged?)
+                            SizedBox(
+                              key: ValueKey(
+                                'playback_overflow_control_slot_$index',
+                              ),
+                              height: 52,
+                              child: _PlayerOverflowSwitchRow(
+                                icon: controls[index].icon,
+                                label: controls[index].label,
+                                value:
+                                    controls[index].switchValue?.call() ??
+                                    false,
+                                onChanged: (enabled) {
+                                  onSwitchChanged(enabled);
+                                  if (controls[index].dismissOnSwitch) {
+                                    Navigator.of(context).pop();
+                                  } else {
+                                    setMenuState(() {});
+                                  }
+                                },
+                              ),
+                            )
+                          else
+                            SizedBox(
+                              key: ValueKey(
+                                'playback_overflow_control_slot_$index',
+                              ),
+                              height: 40,
+                              child: Row(
+                                children: [
+                                  SizedBox.square(
+                                    dimension: 40,
+                                    child: controls[index].build(
+                                      () => setMenuState(() {}),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: InkWell(
+                                      onTap: controls[index].onPressed == null
+                                          ? null
+                                          : () {
+                                              controls[index].onPressed!.call();
+                                              setMenuState(() {});
+                                            },
+                                      borderRadius: BorderRadius.circular(4),
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(left: 8),
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            controls[index].label,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+    _overflowMenuFuture = future;
+    unawaited(
+      future.whenComplete(() {
+        if (identical(_overflowMenuFuture, future)) {
+          _overflowMenuFuture = null;
+        }
+      }),
+    );
+  }
+
+  Widget _buildOverflowButton(
+    BuildContext anchorContext,
+    List<
+      ({
+        String label,
+        IconData icon,
+        Widget Function(VoidCallback onChanged) build,
+        VoidCallback? onPressed,
+        bool Function()? switchValue,
+        ValueChanged<bool>? onSwitchChanged,
+        bool dismissOnSwitch,
+      })
+    >
+    controls,
+    double iconSize,
+  ) {
+    return _PlayerIconButton(
+      key: const Key('playback_overflow_button'),
       icon: Icons.settings_rounded,
-      tooltip: context.l10n.freeModeSettings,
-      onPressed: widget.onOpenFreeModeSettings,
-      padding: widget.isFullScreen ? const EdgeInsets.all(8) : EdgeInsets.zero,
-      constraints: widget.isFullScreen ? null : const BoxConstraints(),
-      iconSize: widget.isFullScreen ? 24 : iconSize,
+      tooltip: context.l10n.moreActions,
+      onPressed: () => unawaited(_openOverflowMenu(anchorContext, controls)),
+      constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+      padding: EdgeInsets.zero,
+      iconSize: iconSize,
     );
   }
 
   Widget _buildFullscreenControl(double iconSize) {
-    return AppIconButton(
+    return _PlayerIconButton(
+      key: const Key('playback_fullscreen_button'),
       icon: widget.isFullScreen
           ? (widget.exitFullScreenIcon ?? Icons.fullscreen_exit)
           : (widget.fullScreenIcon ?? Icons.fullscreen),
@@ -2146,7 +2600,7 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
   }
 
   Widget _buildSendDanmakuControl() {
-    return AppIconButton(
+    return _PlayerIconButton(
       icon: Icons.send_rounded,
       onPressed: _showDanmakuInput,
       tooltip: context.l10n.sendDanmaku,
@@ -2437,7 +2891,6 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
     if (nextVolume > 0.01) _lastAudibleVolume = nextVolume;
     await widget.controller.setVolume(nextVolume);
     unawaited(_persistVolume(nextVolume));
-    _volumeOverlayEntry?.markNeedsBuild();
     _startHideTimer();
     if (mounted) setState(() {});
   }
@@ -2456,128 +2909,164 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
     }
   }
 
-  void _showVolumeOverlay() {
+  void _showVolumeMenu(double buttonSize) {
     _volumeOverlayHideTimer?.cancel();
     _hideTimer?.cancel();
-    if (mounted && !_showVolumeSlider) {
-      _showVolumeSlider = true;
-      _volumeOverlayEntry?.markNeedsBuild();
-    }
+    if (_volumeOverlayEntry == null) _openVolumeMenu(buttonSize);
   }
 
-  void _scheduleVolumeOverlayHide() {
-    _volumeOverlayHideTimer?.cancel();
-    _volumeOverlayHideTimer = Timer(const Duration(milliseconds: 180), () {
-      if (mounted && _showVolumeSlider) {
-        _showVolumeSlider = false;
-        _volumeOverlayEntry?.markNeedsBuild();
-      }
-      _startHideTimer();
-    });
-  }
+  void _openVolumeMenu(double buttonSize) {
+    final anchorBox =
+        _volumeAnchorKey.currentContext?.findRenderObject() as RenderBox?;
+    final overlayBox =
+        Navigator.of(
+              context,
+              rootNavigator: true,
+            ).overlay?.context.findRenderObject()
+            as RenderBox?;
+    if (anchorBox == null || !anchorBox.hasSize || overlayBox == null) return;
+    final overlay = Overlay.of(context, rootOverlay: true);
 
-  void _insertVolumeOverlay() {
-    if (_volumeOverlayEntry != null) return;
-    final entry = OverlayEntry(builder: _buildVolumeOverlay);
+    final anchorTopLeft = anchorBox.localToGlobal(
+      Offset.zero,
+      ancestor: overlayBox,
+    );
+    const menuSize = Size(44, 132);
+    final left = (anchorTopLeft.dx + (buttonSize - menuSize.width) / 2)
+        .clamp(0.0, max(0.0, overlayBox.size.width - menuSize.width))
+        .toDouble();
+    final top = (anchorTopLeft.dy - menuSize.height)
+        .clamp(0.0, max(0.0, overlayBox.size.height - menuSize.height))
+        .toDouble();
+
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => Positioned(
+        left: left,
+        top: top,
+        child: MouseRegion(
+          key: const Key('desktop_volume_menu_hover_region'),
+          onEnter: (_) {
+            _isVolumeMenuHovered = true;
+            _volumeOverlayHideTimer?.cancel();
+          },
+          onHover: (_) {
+            _isVolumeMenuHovered = true;
+            _volumeOverlayHideTimer?.cancel();
+          },
+          onExit: (_) {
+            _isVolumeMenuHovered = false;
+            _scheduleVolumeMenuHide();
+          },
+          child: Material(
+            color: const Color(0xF21A1A24),
+            elevation: 8,
+            borderRadius: BorderRadius.circular(6),
+            child: SizedBox(
+              width: menuSize.width,
+              height: menuSize.height,
+              child: _buildVolumeSlider(),
+            ),
+          ),
+        ),
+      ),
+    );
     _volumeOverlayEntry = entry;
-    Overlay.of(context, rootOverlay: true).insert(entry);
+    overlay.insert(entry);
   }
 
-  void _removeVolumeOverlay() {
+  Widget _buildVolumeSlider() => ValueListenableBuilder<VideoPlayerValue>(
+    valueListenable: widget.controller,
+    builder: (context, value, _) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: SliderTheme(
+        data: SliderTheme.of(context).copyWith(
+          trackHeight: 3,
+          activeTrackColor: const Color(0xFF5D5FEF),
+          inactiveTrackColor: Colors.white24,
+          thumbColor: Colors.white,
+          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+        ),
+        child: RotatedBox(
+          quarterTurns: 3,
+          child: Slider(
+            key: const Key('desktop_volume_slider'),
+            value: value.volume.clamp(0.0, 1.0).toDouble(),
+            min: 0,
+            max: 1,
+            onChangeStart: (_) {
+              _isVolumeSliderDragging = true;
+              _volumeOverlayHideTimer?.cancel();
+            },
+            onChanged: _setPlayerVolume,
+            onChangeEnd: (_) {
+              _isVolumeSliderDragging = false;
+              if (!_isVolumeControlHovered) _scheduleVolumeMenuHide();
+            },
+          ),
+        ),
+      ),
+    ),
+  );
+
+  void _closeVolumeMenu() {
+    _volumeOverlayHideTimer?.cancel();
+    _isVolumeButtonHovered = false;
+    _isVolumeMenuHovered = false;
     final entry = _volumeOverlayEntry;
     _volumeOverlayEntry = null;
     entry?.remove();
     entry?.dispose();
   }
 
-  Widget _buildVolumeOverlay(BuildContext overlayContext) => Positioned.fill(
-    child: Stack(
-      clipBehavior: Clip.none,
-      children: [
-        ExcludeSemantics(
-          child: CompositedTransformFollower(
-            link: _volumeControlLink,
-            showWhenUnlinked: false,
-            targetAnchor: Alignment.topCenter,
-            followerAnchor: Alignment.bottomCenter,
-            offset: const Offset(0, -4),
-            child: SizedBox(
-              width: 44,
-              height: 132,
-              child: IgnorePointer(
-                ignoring: !_showVolumeSlider,
-                child: Opacity(
-                  opacity: _showVolumeSlider ? 1 : 0,
-                  child: MouseRegion(
-                    onEnter: (_) => _showVolumeOverlay(),
-                    onExit: (_) => _scheduleVolumeOverlayHide(),
-                    child: Material(
-                      color: const Color(0xF21A1A24),
-                      elevation: 8,
-                      shadowColor: Colors.black54,
-                      borderRadius: BorderRadius.circular(6),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        child: SliderTheme(
-                          data: SliderTheme.of(overlayContext).copyWith(
-                            trackHeight: 3,
-                            activeTrackColor: const Color(0xFF5D5FEF),
-                            inactiveTrackColor: Colors.white24,
-                            thumbColor: Colors.white,
-                            thumbShape: const RoundSliderThumbShape(
-                              enabledThumbRadius: 6,
-                            ),
-                            overlayShape: const RoundSliderOverlayShape(
-                              overlayRadius: 14,
-                            ),
-                          ),
-                          child: RotatedBox(
-                            quarterTurns: 3,
-                            child: Slider(
-                              key: const Key('desktop_volume_slider'),
-                              value: widget.controller.value.volume
-                                  .clamp(0.0, 1.0)
-                                  .toDouble(),
-                              min: 0,
-                              max: 1,
-                              onChanged: _setPlayerVolume,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
+  void _scheduleVolumeMenuHide() {
+    _volumeOverlayHideTimer?.cancel();
+    _volumeOverlayHideTimer = Timer(playerControlHoverDismissDelay, () {
+      if (_isVolumeControlHovered || _isVolumeSliderDragging) return;
+      _closeVolumeMenu();
+      if (_isDesktopMode && !_isDesktopPointerInside) {
+        _scheduleDesktopControlsHide();
+      } else {
+        _startHideTimer();
+      }
+    });
+  }
 
   Widget _buildHoverVolumeControl(
     VideoPlayerValue videoValue, {
     required double iconSize,
+    VoidCallback? onChanged,
   }) {
     final buttonSize = max(32.0, iconSize + 12);
-    return CompositedTransformTarget(
-      link: _volumeControlLink,
-      child: MouseRegion(
-        onEnter: (_) => _showVolumeOverlay(),
-        onExit: (_) => _scheduleVolumeOverlayHide(),
-        child: AppIconButton(
-          key: const Key('desktop_volume_button'),
-          tooltip: videoValue.volume <= 0.01
-              ? context.l10n.unmute
-              : context.l10n.mute,
-          icon: _volumeIcon(videoValue.volume),
-          padding: EdgeInsets.zero,
-          constraints: BoxConstraints.tightFor(width: buttonSize, height: 40),
-          iconSize: iconSize,
-          showTooltip: false,
-          onPressed: _toggleMute,
-        ),
+    return MouseRegion(
+      key: _volumeAnchorKey,
+      onEnter: (_) {
+        _isVolumeButtonHovered = true;
+        _showVolumeMenu(buttonSize);
+      },
+      onHover: (_) {
+        _isVolumeButtonHovered = true;
+        _showVolumeMenu(buttonSize);
+      },
+      onExit: (_) {
+        _isVolumeButtonHovered = false;
+        _scheduleVolumeMenuHide();
+      },
+      child: _PlayerIconButton(
+        key: const Key('desktop_volume_button'),
+        tooltip: videoValue.volume <= 0.01
+            ? context.l10n.unmute
+            : context.l10n.mute,
+        icon: _volumeIcon(videoValue.volume),
+        padding: EdgeInsets.zero,
+        constraints: BoxConstraints.tightFor(width: buttonSize, height: 40),
+        iconSize: iconSize,
+        showTooltip: false,
+        onPressed: () async {
+          await _toggleMute();
+          onChanged?.call();
+        },
       ),
     );
   }
@@ -2851,7 +3340,7 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
         includeSemantics: false,
         onKeyEvent: _handleDesktopKeyEvent,
         child: MouseRegion(
-          onHover: (_) => _showDesktopControls(),
+          onHover: _handleDesktopPointerHover,
           onExit: _handleDesktopPointerExit,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
@@ -3071,6 +3560,9 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
                                 final horizontalGap = controlsWidth < 360
                                     ? 4.0
                                     : 8.0;
+                                final controlGap = widget.isFullScreen
+                                    ? 0.0
+                                    : 4.0;
                                 final playPauseControl = _PlayerIconButton(
                                   onPressed: widget.canControlPlayback
                                       ? _togglePlayPause
@@ -3088,59 +3580,137 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
                                   iconSize: playIconSize,
                                 );
                                 final controls =
-                                    <({Widget control, bool visible})>[
+                                    <
+                                      ({
+                                        String label,
+                                        IconData icon,
+                                        Widget Function(VoidCallback onChanged)
+                                        build,
+                                        VoidCallback? onPressed,
+                                        bool Function()? switchValue,
+                                        ValueChanged<bool>? onSwitchChanged,
+                                        bool dismissOnSwitch,
+                                        bool visible,
+                                      })
+                                    >[
                                       if (_isDesktopMode)
                                         (
-                                          control: _buildHoverVolumeControl(
-                                            videoValue,
-                                            iconSize: widget.isFullScreen
-                                                ? 24
-                                                : 20,
-                                          ),
+                                          label: videoValue.volume <= 0.01
+                                              ? context.l10n.unmute
+                                              : context.l10n.mute,
+                                          icon: _volumeIcon(videoValue.volume),
+                                          build: (onChanged) =>
+                                              _buildHoverVolumeControl(
+                                                widget.controller.value,
+                                                iconSize: widget.isFullScreen
+                                                    ? 24
+                                                    : 20,
+                                                onChanged: onChanged,
+                                              ),
+                                          onPressed: () {
+                                            unawaited(_toggleMute());
+                                          },
+                                          switchValue: null,
+                                          onSwitchChanged: null,
+                                          dismissOnSwitch: false,
                                           visible: visibility.showVolume,
                                         ),
                                       if (widget.subtitles != null &&
                                           widget.subtitles!.isNotEmpty)
                                         (
-                                          control: _buildSubtitleControl(
-                                            iconSize,
-                                          ),
+                                          label: context.l10n.subtitles,
+                                          icon: Icons.closed_caption_rounded,
+                                          build: (_) =>
+                                              _buildSubtitleControl(iconSize),
+                                          onPressed: _showSubtitleMenu,
+                                          switchValue: null,
+                                          onSwitchChanged: null,
+                                          dismissOnSwitch: false,
                                           visible: visibility.showSubtitles,
                                         ),
                                       if (widget.canControlPlayback &&
                                           !widget.isLive)
                                         (
-                                          control: _buildSpeedControl(
-                                            videoValue,
-                                            iconSize,
-                                          ),
+                                          label: context.l10n.playbackSpeed,
+                                          icon: Icons.speed_rounded,
+                                          build: (onChanged) =>
+                                              _buildSpeedControl(
+                                                widget.controller.value,
+                                                iconSize,
+                                                onChanged: onChanged,
+                                                key: _speedMenuKey,
+                                              ),
+                                          onPressed: () => _speedMenuKey
+                                              .currentState
+                                              ?.openMenuFromOverflow(),
+                                          switchValue: null,
+                                          onSwitchChanged: null,
+                                          dismissOnSwitch: false,
                                           visible: visibility.showSpeed,
                                         ),
                                       (
-                                        control: _buildDanmakuControl(iconSize),
+                                        label: context.l10n.danmaku,
+                                        icon: Icons.comment_rounded,
+                                        build: (onChanged) =>
+                                            _buildDanmakuControl(
+                                              iconSize,
+                                              onChanged: onChanged,
+                                            ),
+                                        onPressed: _toggleDanmaku,
+                                        switchValue: () => _showDanmaku,
+                                        onSwitchChanged: (_) =>
+                                            _toggleDanmaku(),
+                                        dismissOnSwitch: false,
                                         visible: visibility.showDanmaku,
                                       ),
                                       if (widget.onSync != null)
                                         (
-                                          control: _buildSyncControl(iconSize),
+                                          label: widget.isLive
+                                              ? context.l10n.reload
+                                              : context.l10n.sync,
+                                          icon: widget.isLive
+                                              ? Icons.refresh_rounded
+                                              : Icons.sync_rounded,
+                                          build: (_) =>
+                                              _buildSyncControl(iconSize),
+                                          onPressed: widget.onSync,
+                                          switchValue: null,
+                                          onSwitchChanged: null,
+                                          dismissOnSwitch: false,
                                           visible: visibility.showSync,
                                         ),
                                       if (widget.extraBottomWidget
                                           case final control?)
                                         (
-                                          control: control,
+                                          label: context.l10n.playbackRoute,
+                                          icon: Icons.route_rounded,
+                                          build: (_) => control,
+                                          onPressed: null,
+                                          switchValue: null,
+                                          onSwitchChanged: null,
+                                          dismissOnSwitch: false,
                                           visible: visibility.showPlaybackRoute,
                                         ),
                                       if (widget.isFullScreen &&
                                           widget.onSendDanmaku != null)
                                         (
-                                          control: _buildSendDanmakuControl(),
+                                          label: context.l10n.sendDanmaku,
+                                          icon: Icons.send_rounded,
+                                          build: (_) =>
+                                              _buildSendDanmakuControl(),
+                                          onPressed: _showDanmakuInput,
+                                          switchValue: null,
+                                          onSwitchChanged: null,
+                                          dismissOnSwitch: false,
                                           visible: visibility.showSendDanmaku,
                                         ),
                                       if (widget.onEnterPictureInPicture !=
                                           null)
                                         (
-                                          control: PictureInPictureControl(
+                                          label: context.l10n.pictureInPicture,
+                                          icon: Icons
+                                              .picture_in_picture_alt_rounded,
+                                          build: (_) => PictureInPictureControl(
                                             tooltip:
                                                 context.l10n.pictureInPicture,
                                             onPressed:
@@ -3149,29 +3719,54 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
                                                 ? 24
                                                 : iconSize,
                                           ),
+                                          onPressed:
+                                              widget.onEnterPictureInPicture,
+                                          switchValue: () => false,
+                                          onSwitchChanged: (enabled) {
+                                            if (enabled) {
+                                              widget.onEnterPictureInPicture
+                                                  ?.call();
+                                            }
+                                          },
+                                          dismissOnSwitch: true,
                                           visible:
                                               visibility.showPictureInPicture,
                                         ),
-                                      if (widget.onOpenFreeModeSettings != null)
-                                        (
-                                          control:
-                                              _buildFreeModeSettingsControl(
-                                                iconSize,
-                                              ),
-                                          visible: visibility.showSettings,
-                                        ),
-                                      if (widget.onToggleFullScreen != null)
-                                        (
-                                          control: _buildFullscreenControl(
-                                            iconSize,
-                                          ),
-                                          visible: visibility.showFullscreen,
-                                        ),
                                     ];
-                                final hiddenControls = [
-                                  for (final entry in controls)
-                                    if (!entry.visible) entry.control,
-                                ];
+                                final hiddenControls =
+                                    <
+                                      ({
+                                        String label,
+                                        IconData icon,
+                                        Widget Function(VoidCallback onChanged)
+                                        build,
+                                        VoidCallback? onPressed,
+                                        bool Function()? switchValue,
+                                        ValueChanged<bool>? onSwitchChanged,
+                                        bool dismissOnSwitch,
+                                      })
+                                    >[
+                                      for (final entry in controls)
+                                        if (!entry.visible)
+                                          (
+                                            label: entry.label,
+                                            icon: entry.icon,
+                                            build: entry.build,
+                                            onPressed: entry.onPressed,
+                                            switchValue: entry.switchValue,
+                                            onSwitchChanged:
+                                                entry.onSwitchChanged,
+                                            dismissOnSwitch:
+                                                entry.dismissOnSwitch,
+                                          ),
+                                    ];
+                                final fullscreenControl =
+                                    widget.onToggleFullScreen == null
+                                    ? null
+                                    : _buildFullscreenControl(iconSize);
+                                final showOverflow =
+                                    hiddenControls.isNotEmpty ||
+                                    widget.onFreeModeChanged != null;
 
                                 return Column(
                                   mainAxisSize: MainAxisSize.min,
@@ -3365,66 +3960,27 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer>
                                         ],
                                         for (final entry in controls)
                                           if (entry.visible) ...[
-                                            SizedBox(
-                                              width: widget.isFullScreen
-                                                  ? 0
-                                                  : 4,
-                                            ),
-                                            entry.control,
+                                            SizedBox(width: controlGap),
+                                            entry.build(() {}),
                                           ],
-                                        if (hiddenControls.isNotEmpty) ...[
-                                          SizedBox(width: horizontalGap),
-                                          AppIconButton(
-                                            key: const Key(
-                                              'playback_overflow_button',
-                                            ),
-                                            icon: _showOverflowControls
-                                                ? Icons.expand_more_rounded
-                                                : Icons.more_horiz_rounded,
-                                            tooltip: context.l10n.moreActions,
-                                            selected: _showOverflowControls,
-                                            onPressed: () => setState(
-                                              () => _showOverflowControls =
-                                                  !_showOverflowControls,
-                                            ),
-                                            constraints:
-                                                const BoxConstraints.tightFor(
-                                                  width: 40,
-                                                  height: 40,
+                                        if (showOverflow) ...[
+                                          SizedBox(width: controlGap),
+                                          Builder(
+                                            builder: (anchorContext) =>
+                                                _buildOverflowButton(
+                                                  anchorContext,
+                                                  hiddenControls,
+                                                  iconSize,
                                                 ),
-                                            padding: EdgeInsets.zero,
-                                            iconSize: iconSize,
                                           ),
+                                        ],
+                                        if (fullscreenControl != null &&
+                                            visibility.showFullscreen) ...[
+                                          SizedBox(width: controlGap),
+                                          fullscreenControl,
                                         ],
                                       ],
                                     ),
-                                    if (_showOverflowControls &&
-                                        hiddenControls.isNotEmpty) ...[
-                                      const SizedBox(height: 6),
-                                      Align(
-                                        alignment: Alignment.centerRight,
-                                        child: AppPanelSurface(
-                                          key: const Key(
-                                            'playback_overflow_controls',
-                                          ),
-                                          color: const Color(0xD91A1A24),
-                                          borderRadius: BorderRadius.circular(
-                                            6,
-                                          ),
-                                          border: Border.all(
-                                            color: Colors.white24,
-                                          ),
-                                          padding: const EdgeInsets.all(4),
-                                          child: Wrap(
-                                            spacing: 4,
-                                            runSpacing: 4,
-                                            crossAxisAlignment:
-                                                WrapCrossAlignment.center,
-                                            children: hiddenControls,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
                                   ],
                                 );
                               },
@@ -3484,65 +4040,206 @@ class _PlaybackSpeedOption {
   const _PlaybackSpeedOption({required this.speed, required this.label});
 }
 
-class _PlaybackSpeedMenuButton extends StatelessWidget {
+class _PlaybackSpeedMenuButton extends StatefulWidget {
   final double currentSpeed;
   final List<_PlaybackSpeedOption> options;
   final double dimension;
   final double iconSize;
+  final ValueChanged<bool> onMenuVisibilityChanged;
   final ValueChanged<double> onSelected;
 
   const _PlaybackSpeedMenuButton({
+    super.key,
     required this.currentSpeed,
     required this.options,
     required this.dimension,
     required this.iconSize,
+    required this.onMenuVisibilityChanged,
     required this.onSelected,
   });
 
-  Future<void> _openMenu(BuildContext context) async {
+  @override
+  State<_PlaybackSpeedMenuButton> createState() =>
+      _PlaybackSpeedMenuButtonState();
+}
+
+class _PlaybackSpeedMenuButtonState extends State<_PlaybackSpeedMenuButton> {
+  final Object _tapRegionGroup = Object();
+  OverlayEntry? _menuOverlayEntry;
+  Timer? _menuHideTimer;
+  bool _isButtonHovered = false;
+  bool _isMenuHovered = false;
+
+  void _keepMenuOpen() => _menuHideTimer?.cancel();
+
+  void _scheduleMenuHide() {
+    _menuHideTimer?.cancel();
+    if (_menuOverlayEntry == null) return;
+    _menuHideTimer = Timer(playerControlHoverDismissDelay, () {
+      if (!mounted || _isButtonHovered || _isMenuHovered) return;
+      _closeMenu();
+    });
+  }
+
+  void _openMenu() {
+    _keepMenuOpen();
+    if (_menuOverlayEntry != null) return;
     final renderBox = context.findRenderObject() as RenderBox?;
     if (renderBox == null || !renderBox.hasSize) return;
-    final overlay =
-        Navigator.of(context).overlay?.context.findRenderObject() as RenderBox?;
-    if (overlay == null || !overlay.hasSize) return;
-    final topLeft = renderBox.localToGlobal(Offset.zero, ancestor: overlay);
-    final bottomRight = renderBox.localToGlobal(
-      renderBox.size.bottomRight(Offset.zero),
-      ancestor: overlay,
-    );
-    final selected = await showMenu<double>(
-      context: context,
-      color: Colors.black87,
-      position: RelativeRect.fromLTRB(
-        topLeft.dx,
-        topLeft.dy,
-        overlay.size.width - bottomRight.dx,
-        overlay.size.height - bottomRight.dy,
-      ),
-      items: [
-        for (final option in options)
-          PopupMenuItem<double>(
-            value: option.speed,
-            height: 36,
-            child: Row(
-              children: [
-                Icon(
-                  (currentSpeed - option.speed).abs() < 0.001
-                      ? Icons.radio_button_checked_rounded
-                      : Icons.radio_button_unchecked_rounded,
-                  size: 18,
-                  color: (currentSpeed - option.speed).abs() < 0.001
-                      ? const Color(0xFF7CFFB2)
-                      : Colors.white70,
+    final overlayBox =
+        Navigator.of(
+              context,
+              rootNavigator: true,
+            ).overlay?.context.findRenderObject()
+            as RenderBox?;
+    if (overlayBox == null || !overlayBox.hasSize) return;
+    final overlay = Overlay.of(context, rootOverlay: true);
+    final topLeft = renderBox.localToGlobal(Offset.zero, ancestor: overlayBox);
+    const menuWidth = 132.0;
+    final left = (topLeft.dx + (renderBox.size.width - menuWidth) / 2)
+        .clamp(8.0, max(8.0, overlayBox.size.width - menuWidth - 8))
+        .toDouble();
+    final menuHeight = widget.options.length * 36.0 + 16;
+    final top = (topLeft.dy - menuHeight)
+        .clamp(8.0, max(8.0, overlayBox.size.height - menuHeight - 8))
+        .toDouble();
+
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => Positioned(
+        left: left,
+        top: top,
+        child: TapRegion(
+          groupId: _tapRegionGroup,
+          child: MouseRegion(
+            key: const Key('playback_speed_menu_hover_region'),
+            onEnter: (_) {
+              _isMenuHovered = true;
+              _keepMenuOpen();
+            },
+            onHover: (_) {
+              _isMenuHovered = true;
+              _keepMenuOpen();
+            },
+            onExit: (_) {
+              _isMenuHovered = false;
+              _scheduleMenuHide();
+            },
+            child: Material(
+              color: const Color(0xF21A1A24),
+              elevation: 8,
+              borderRadius: BorderRadius.circular(6),
+              clipBehavior: Clip.antiAlias,
+              child: SizedBox(
+                width: menuWidth,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final option in widget.options)
+                        SizedBox(
+                          height: 36,
+                          child: InkWell(
+                            key: ValueKey(
+                              'playback_speed_option_${option.speed}',
+                            ),
+                            onTap: () {
+                              _closeMenu();
+                              widget.onSelected(option.speed);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    (widget.currentSpeed - option.speed).abs() <
+                                            0.001
+                                        ? Icons.radio_button_checked_rounded
+                                        : Icons.radio_button_unchecked_rounded,
+                                    size: 18,
+                                    color:
+                                        (widget.currentSpeed - option.speed)
+                                                .abs() <
+                                            0.001
+                                        ? const Color(0xFF7CFFB2)
+                                        : Colors.white70,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    option.label,
+                                    style: const TextStyle(color: Colors.white),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-                const SizedBox(width: 8),
-                Text(option.label, style: const TextStyle(color: Colors.white)),
-              ],
+              ),
             ),
           ),
-      ],
+        ),
+      ),
     );
-    if (selected != null) onSelected(selected);
+    _menuOverlayEntry = entry;
+    overlay.insert(entry);
+    widget.onMenuVisibilityChanged(true);
+  }
+
+  void openMenuFromOverflow() {
+    _openMenu();
+  }
+
+  void _closeMenu() {
+    _menuHideTimer?.cancel();
+    _isMenuHovered = false;
+    final entry = _menuOverlayEntry;
+    _menuOverlayEntry = null;
+    if (entry == null) return;
+    entry.remove();
+    entry.dispose();
+    widget.onMenuVisibilityChanged(false);
+  }
+
+  @override
+  void didUpdateWidget(_PlaybackSpeedMenuButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final entry = _menuOverlayEntry;
+    if (entry == null ||
+        (oldWidget.currentSpeed == widget.currentSpeed &&
+            _samePlaybackSpeedOptions(oldWidget.options, widget.options))) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && identical(_menuOverlayEntry, entry)) {
+        entry.markNeedsBuild();
+      }
+    });
+  }
+
+  bool _samePlaybackSpeedOptions(
+    List<_PlaybackSpeedOption> previous,
+    List<_PlaybackSpeedOption> next,
+  ) {
+    if (previous.length != next.length) return false;
+    for (var index = 0; index < previous.length; index++) {
+      if (previous[index].speed != next[index].speed ||
+          previous[index].label != next[index].label) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @override
+  void dispose() {
+    _closeMenu();
+    super.dispose();
   }
 
   @override
@@ -3550,23 +4247,42 @@ class _PlaybackSpeedMenuButton extends StatelessWidget {
     return Semantics(
       button: true,
       label: context.l10n.playbackSpeed,
-      child: AppTooltip(
-        message: context.l10n.playbackSpeedValue(
-          currentSpeed.toStringAsFixed(2),
-        ),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => _openMenu(context),
-          child: AppInkSurface(
-            color: Colors.transparent,
-            borderRadius: BorderRadius.circular(dimension / 2),
-            child: SizedBox.square(
-              dimension: dimension,
-              child: Center(
-                child: Icon(
-                  Icons.speed_rounded,
-                  color: Colors.white,
-                  size: iconSize,
+      child: TapRegion(
+        groupId: _tapRegionGroup,
+        onTapOutside: (_) => _closeMenu(),
+        child: AppTooltip(
+          message: context.l10n.playbackSpeedValue(
+            widget.currentSpeed.toStringAsFixed(2),
+          ),
+          child: MouseRegion(
+            onEnter: (_) {
+              _isButtonHovered = true;
+              _keepMenuOpen();
+              _openMenu();
+            },
+            onHover: (_) {
+              _isButtonHovered = true;
+              _keepMenuOpen();
+            },
+            onExit: (_) {
+              _isButtonHovered = false;
+              _scheduleMenuHide();
+            },
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _openMenu,
+              child: AppInkSurface(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(widget.dimension / 2),
+                child: SizedBox.square(
+                  dimension: widget.dimension,
+                  child: Center(
+                    child: Icon(
+                      Icons.speed_rounded,
+                      color: Colors.white,
+                      size: widget.iconSize,
+                    ),
+                  ),
                 ),
               ),
             ),

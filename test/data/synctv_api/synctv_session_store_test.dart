@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:synctv_app/data/synctv_api/synctv_api_client.dart';
+import 'package:synctv_app/data/synctv_api/synctv_runtime_service.dart';
 import 'package:synctv_app/data/synctv_api/synctv_session_store.dart';
 
 SyncTvServerProfile _profile({
@@ -36,6 +37,20 @@ void main() {
 
     expect(restored, isNotNull);
     expect(restored!.isBuiltIn, isTrue);
+  });
+
+  test('server profile persists its TLS verification policy', () {
+    final profile = SyncTvServerProfile(
+      endpoint: 'https://self-signed.example.com',
+      declaredServerId: 'self-signed',
+      name: 'Self signed',
+      allowInsecureTls: true,
+    );
+
+    final restored = SyncTvServerProfile.fromJson(profile.toJson());
+
+    expect(restored, isNotNull);
+    expect(restored!.allowInsecureTls, isTrue);
   });
 
   test('explicit server configuration has priority in every build mode', () {
@@ -208,5 +223,24 @@ void main() {
 
     expect(restored.activeServerEndpoint, 'https://second.example.com');
     expect(restoredSession.accessToken, 'second-token');
+  });
+
+  test('active server TLS policy survives a runtime restart', () async {
+    final store = SyncTvSessionStore(SyncTvSession(), builtInServerUrl: '');
+    await store.load();
+    await store.addOrUpdateServer(
+      declaredServerId: 'self-signed',
+      name: 'Self signed',
+      endpoint: 'https://self-signed.example.com',
+      allowInsecureTls: true,
+    );
+
+    final restartedRuntime = SyncTvRuntimeService();
+    addTearDown(restartedRuntime.api.close);
+    await restartedRuntime.init();
+
+    expect(restartedRuntime.activeServer?.allowInsecureTls, isTrue);
+    expect(restartedRuntime.allowInsecureTls, isTrue);
+    expect(restartedRuntime.api.allowInsecureTls, isTrue);
   });
 }

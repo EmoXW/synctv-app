@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:synctv_app/l10n/l10n.dart';
 import 'package:synctv_app/contracts/public_models.dart';
 import 'package:synctv_app/core/presentation/dependency_scope.dart';
 import 'package:synctv_app/features/server_settings/application/server_connection_gateway.dart';
-import 'package:synctv_app/core/presentation/dialogs/app_dialogs.dart';
 import 'package:synctv_app/core/presentation/notifications/app_notifications.dart';
 import 'package:synctv_app/core/presentation/widgets/app_form_controls.dart';
 
@@ -11,6 +11,7 @@ Future<bool?> showServerSettingsDialog({
   required BuildContext context,
   bool requireServer = false,
   String initialAddress = '',
+  VoidCallback? onServerChanged,
 }) {
   return showAppBottomSheet<bool>(
     context: context,
@@ -21,6 +22,7 @@ Future<bool?> showServerSettingsDialog({
     builder: (context) => _ServerSettingsSheet(
       requireServer: requireServer,
       initialAddress: initialAddress,
+      onServerChanged: onServerChanged,
     ),
   );
 }
@@ -29,10 +31,12 @@ class _ServerSettingsSheet extends StatefulWidget {
   const _ServerSettingsSheet({
     required this.requireServer,
     required this.initialAddress,
+    this.onServerChanged,
   });
 
   final bool requireServer;
   final String initialAddress;
+  final VoidCallback? onServerChanged;
 
   @override
   State<_ServerSettingsSheet> createState() => _ServerSettingsSheetState();
@@ -42,7 +46,6 @@ class _ServerSettingsSheetState extends State<_ServerSettingsSheet> {
   ServerConnectionGateway get _gateway =>
       DependencyScope.read<ServerConnectionGateway>(context);
 
-  final _controller = TextEditingController();
   var _changed = false;
   var _busy = false;
   ServerInfo? _serverInfo;
@@ -52,18 +55,11 @@ class _ServerSettingsSheetState extends State<_ServerSettingsSheet> {
   @override
   void initState() {
     super.initState();
-    _controller.text = widget.initialAddress;
     if (_gateway.activeServer == null) {
       _loadingServerInfo = false;
     } else {
       _loadServerInfo();
     }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
   }
 
   Future<void> _loadServerInfo({bool refresh = false}) async {
@@ -87,45 +83,30 @@ class _ServerSettingsSheetState extends State<_ServerSettingsSheet> {
     }
   }
 
-  Future<void> _addServer() async {
-    final input = _controller.text.trim();
-    if (input.isEmpty) {
-      AppNotifications.showWarning(context, context.l10n.serverAddressRequired);
-      return;
-    }
-
+  Future<void> _openAddServerDialog() async {
+    if (_busy) return;
     setState(() => _busy = true);
     try {
-      final profile = await _gateway.addServer(input);
-      await _gateway.syncServerTime(refresh: true);
-      _controller.clear();
+      final profile = await showAppDialog<ServerConnectionProfile>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _AddServerDialog(initialAddress: widget.initialAddress),
+      );
+      if (!mounted || profile == null) return;
+
       _changed = true;
-      if (mounted) {
-        AppNotifications.showSuccess(
-          context,
-          context.l10n.serverConnected(profile.name),
-        );
-      }
-      if (widget.requireServer && mounted) {
+      widget.onServerChanged?.call();
+      AppNotifications.showSuccess(
+        context,
+        context.l10n.serverConnected(profile.name),
+      );
+      await _loadServerInfo(refresh: true);
+      if (!mounted) return;
+      if (widget.requireServer) {
         Navigator.pop(context, true);
-        return;
-      }
-      setState(() {});
-    } on ServerConnectionException catch (error) {
-      if (mounted) {
-        AppNotifications.showError(context, error.message);
-      }
-    } catch (error) {
-      if (mounted) {
-        AppNotifications.showError(
-          context,
-          context.l10n.serverConnectFailed(error.toString()),
-        );
       }
     } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -136,6 +117,7 @@ class _ServerSettingsSheetState extends State<_ServerSettingsSheet> {
       await _gateway.syncServerTime(refresh: true);
       await _loadServerInfo(refresh: true);
       _changed = true;
+      widget.onServerChanged?.call();
       if (mounted) {
         AppNotifications.showSuccess(
           context,
@@ -169,6 +151,7 @@ class _ServerSettingsSheetState extends State<_ServerSettingsSheet> {
     try {
       await _gateway.removeServer(profile.endpoint);
       _changed = true;
+      widget.onServerChanged?.call();
       if (mounted) {
         AppNotifications.showSuccess(context, context.l10n.serverRemoved);
       }
@@ -215,11 +198,23 @@ class _ServerSettingsSheetState extends State<_ServerSettingsSheet> {
                       ),
                     ),
                   ),
-                  AppActionButton(
-                    onPressed: widget.requireServer && activeServer == null
-                        ? null
-                        : () => Navigator.pop(context, _changed),
-                    label: l10n.done,
+                  SizedBox(
+                    height: 40,
+                    child: AppActionButton(
+                      onPressed: _busy ? null : _openAddServerDialog,
+                      icon: Icons.add_link_rounded,
+                      label: l10n.addServer,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    height: 40,
+                    child: AppActionButton(
+                      onPressed: widget.requireServer && activeServer == null
+                          ? null
+                          : () => Navigator.pop(context, _changed),
+                      label: l10n.done,
+                    ),
                   ),
                 ],
               ),
@@ -234,39 +229,6 @@ class _ServerSettingsSheetState extends State<_ServerSettingsSheet> {
                     : () => _loadServerInfo(refresh: true),
               ),
               const SizedBox(height: 16),
-              AppDialogs.createFormField(
-                context: context,
-                label: l10n.serverAddress,
-                controller: _controller,
-                hintText: l10n.serverAddressExample,
-                prefixIcon: Icons.link_rounded,
-                onSubmitted: (_) => _busy ? null : _addServer(),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      l10n.serverAutoDiscoverDescription,
-                      style: TextStyle(
-                        color: isDark
-                            ? Colors.grey.shade400
-                            : Colors.grey.shade600,
-                        fontSize: 12,
-                        height: 1.35,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  AppActionButton(
-                    onPressed: _busy ? null : _addServer,
-                    icon: Icons.add_link_rounded,
-                    label: l10n.add,
-                    loading: _busy,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
               Text(
                 l10n.savedServers,
                 style: theme.textTheme.titleSmall?.copyWith(
@@ -293,6 +255,227 @@ class _ServerSettingsSheetState extends State<_ServerSettingsSheet> {
       ),
     );
   }
+}
+
+class _AddServerDialog extends StatefulWidget {
+  const _AddServerDialog({required this.initialAddress});
+
+  final String initialAddress;
+
+  @override
+  State<_AddServerDialog> createState() => _AddServerDialogState();
+}
+
+class _AddServerDialogState extends State<_AddServerDialog> {
+  ServerConnectionGateway get _gateway =>
+      DependencyScope.read<ServerConnectionGateway>(context);
+
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+  var _busy = false;
+  var _allowInsecureTls = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialAddress);
+    _focusNode = FocusNode();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_busy) return;
+    final input = _controller.text.trim();
+    if (input.isEmpty) {
+      AppNotifications.showWarning(context, context.l10n.serverAddressRequired);
+      return;
+    }
+
+    setState(() => _busy = true);
+    try {
+      final profile = await _gateway.addServer(
+        input,
+        allowInsecureTls: _allowInsecureTls,
+      );
+      await _gateway.syncServerTime(refresh: true);
+      if (mounted) Navigator.pop(context, profile);
+    } on ServerConnectionException catch (error) {
+      if (mounted) AppNotifications.showError(context, error.message);
+    } catch (error) {
+      if (mounted) {
+        AppNotifications.showError(
+          context,
+          context.l10n.serverConnectFailed(error.toString()),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    return PopScope(
+      canPop: !_busy,
+      child: AppDialogFrame(
+        maxWidth: 520,
+        child: Shortcuts(
+          shortcuts: const {
+            SingleActivator(LogicalKeyboardKey.enter, meta: true):
+                _SubmitAddServerIntent(),
+            SingleActivator(LogicalKeyboardKey.enter, control: true):
+                _SubmitAddServerIntent(),
+          },
+          child: Actions(
+            actions: {
+              _SubmitAddServerIntent: CallbackAction<_SubmitAddServerIntent>(
+                onInvoke: (_) {
+                  _submit();
+                  return null;
+                },
+              ),
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AppDialogHeader(
+                  title: Text(l10n.addServer),
+                  icon: Icons.add_link_rounded,
+                  onClose: _busy ? null : () => Navigator.pop(context),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 22, 24, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      AppTextField(
+                        label: l10n.serverAddress,
+                        controller: _controller,
+                        focusNode: _focusNode,
+                        hintText: l10n.serverAddressExample,
+                        prefixIcon: Icons.link_rounded,
+                        enabled: !_busy,
+                        onSubmitted: (_) => _submit(),
+                      ),
+                      const SizedBox(height: 14),
+                      AppPanelSurface(
+                        color: theme.colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.42),
+                        border: Border.all(
+                          color: theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.65,
+                          ),
+                        ),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: _busy
+                                ? null
+                                : () => setState(
+                                    () =>
+                                        _allowInsecureTls = !_allowInsecureTls,
+                                  ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.gpp_maybe_outlined,
+                                    color: _allowInsecureTls
+                                        ? theme.colorScheme.error
+                                        : theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          l10n.allowInsecureTls,
+                                          style: theme.textTheme.bodyMedium
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          l10n.allowInsecureTlsDescription,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                color: theme
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Semantics(
+                                    label: l10n.allowInsecureTls,
+                                    toggled: _allowInsecureTls,
+                                    child: Switch.adaptive(
+                                      value: _allowInsecureTls,
+                                      onChanged: _busy
+                                          ? null
+                                          : (value) => setState(
+                                              () => _allowInsecureTls = value,
+                                            ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          AppActionButton(
+                            onPressed: _busy
+                                ? null
+                                : () => Navigator.pop(context),
+                            label: l10n.cancel,
+                          ),
+                          const SizedBox(width: 8),
+                          AppActionButton(
+                            onPressed: _busy ? null : _submit,
+                            icon: Icons.add_link_rounded,
+                            label: l10n.add,
+                            loading: _busy,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+final class _SubmitAddServerIntent extends Intent {
+  const _SubmitAddServerIntent();
 }
 
 class _EmptyServerState extends StatelessWidget {
@@ -536,6 +719,10 @@ class _ServerProfileTile extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           _MetaLine(icon: Icons.link_rounded, text: profile.endpoint),
+          if (profile.allowInsecureTls) ...[
+            const SizedBox(height: 6),
+            _MetaLine(icon: Icons.gpp_maybe_outlined, text: l10n.tlsUnverified),
+          ],
           if (profile.declaredServerId.isNotEmpty) ...[
             const SizedBox(height: 6),
             _MetaLine(

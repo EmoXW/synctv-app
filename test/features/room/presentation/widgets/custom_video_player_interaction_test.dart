@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:ui' show PointerDeviceKind;
 
-import 'package:flutter/gestures.dart' show kSecondaryMouseButton;
+import 'package:flutter/gestures.dart'
+    show PointerScrollEvent, kSecondaryMouseButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -96,6 +97,7 @@ class _RecordingVideoPlayerController extends VideoPlayerController {
   var playCalls = 0;
   var pauseCalls = 0;
   final List<double> volumes = [];
+  final List<double> playbackSpeeds = [];
 
   @override
   Future<void> seekTo(Duration position) async {
@@ -120,9 +122,156 @@ class _RecordingVideoPlayerController extends VideoPlayerController {
     volumes.add(volume);
     value = value.copyWith(volume: volume);
   }
+
+  @override
+  Future<void> setPlaybackSpeed(double speed) async {
+    playbackSpeeds.add(speed);
+    value = value.copyWith(playbackSpeed: speed);
+  }
 }
 
 void main() {
+  for (final brightness in Brightness.values) {
+    testWidgets('player controls stay visible in ${brightness.name} theme', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final controller = _RecordingVideoPlayerController(
+        const VideoPlayerValue(
+          duration: Duration(minutes: 1),
+          isInitialized: true,
+          size: Size(1920, 1080),
+        ),
+      );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.light(),
+          darkTheme: ThemeData.dark(),
+          themeMode: brightness == Brightness.dark
+              ? ThemeMode.dark
+              : ThemeMode.light,
+          builder: buildThemedTestApp,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: SizedBox(
+              width: 1000,
+              height: 560,
+              child: CustomVideoPlayer(
+                volumePreferences: _volumePreferences(),
+                subtitleSource: const _EmptySubtitleSource(),
+                controller: controller,
+                title: 'Video',
+                interactionMode: VideoPlayerInteractionMode.desktop,
+                subtitles: const {
+                  'en': {'name': 'English'},
+                },
+                onSync: () {},
+                onToggleFullScreen: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      for (final key in [
+        const Key('desktop_volume_button'),
+        const Key('playback_sync_button'),
+        const Key('playback_subtitles_button'),
+        const Key('playback_fullscreen_button'),
+      ]) {
+        final iconButton = tester.widget<IconButton>(
+          find.descendant(
+            of: find.byKey(key),
+            matching: find.byType(IconButton),
+          ),
+        );
+        expect(
+          iconButton.style?.foregroundColor?.resolve(const {}),
+          Colors.white,
+        );
+      }
+    });
+  }
+
+  testWidgets('fullscreen changes orientation and restores system defaults', (
+    tester,
+  ) async {
+    final calls = <MethodCall>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        calls.add(call);
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    final controller = _RecordingVideoPlayerController(
+      const VideoPlayerValue(
+        duration: Duration(minutes: 1),
+        isInitialized: true,
+      ),
+    );
+    addTearDown(controller.dispose);
+
+    Widget player(bool fullscreen) => MaterialApp(
+      builder: buildThemedTestApp,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: CustomVideoPlayer(
+        key: const Key('player'),
+        volumePreferences: _volumePreferences(),
+        subtitleSource: const _EmptySubtitleSource(),
+        controller: controller,
+        title: 'Video',
+        isFullScreen: fullscreen,
+      ),
+    );
+
+    await tester.pumpWidget(player(false));
+    calls.clear();
+    await tester.pumpWidget(player(true));
+    await tester.pump();
+
+    expect(
+      calls.where(
+        (call) => call.method == 'SystemChrome.setPreferredOrientations',
+      ),
+      isNotEmpty,
+    );
+    expect(
+      calls.any(
+        (call) =>
+            call.method == 'SystemChrome.setPreferredOrientations' &&
+            (call.arguments as List).contains(
+              'DeviceOrientation.landscapeLeft',
+            ),
+      ),
+      isTrue,
+    );
+
+    calls.clear();
+    await tester.pumpWidget(player(false));
+    await tester.pump();
+    expect(
+      calls.any(
+        (call) =>
+            call.method == 'SystemChrome.setPreferredOrientations' &&
+            (call.arguments as List).isEmpty,
+      ),
+      isTrue,
+    );
+  });
+
   test('picture-in-picture selects a supported platform backend', () {
     expect(
       pictureInPictureBackendForPlatform(TargetPlatform.android),
@@ -181,7 +330,7 @@ void main() {
     final visibility = PlayerControlVisibility.forWidth(300, desktop: true);
 
     expect(visibility.showTime, isFalse);
-    expect(visibility.showFullscreen, isFalse);
+    expect(visibility.showFullscreen, isTrue);
     expect(visibility.showVolume, isFalse);
     expect(visibility.showSync, isFalse);
     expect(visibility.showPlaybackRoute, isFalse);
@@ -579,7 +728,7 @@ void main() {
     },
   );
 
-  testWidgets('desktop volume slider stays interactive across overlay', (
+  testWidgets('desktop volume slider stays interactive while hovered', (
     tester,
   ) async {
     final controller = _RecordingVideoPlayerController(
@@ -623,15 +772,435 @@ void main() {
 
     final slider = find.byKey(const Key('desktop_volume_slider'));
     expect(slider, findsOneWidget);
+    expect(find.byType(Scrollbar), findsNothing);
     await mouse.moveTo(tester.getCenter(slider));
-    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump(const Duration(seconds: 2));
     expect(slider, findsOneWidget);
+    expect(find.byType(Scrollbar), findsNothing);
 
     await tester.tapAt(tester.getCenter(slider) - const Offset(0, 30));
     await tester.pump();
 
     expect(controller.volumes, isNotEmpty);
     expect(controller.value.volume, greaterThan(0.5));
+    expect(tester.widget<Slider>(slider).value, greaterThan(0.5));
+    expect(controller.seekPositions, isEmpty);
+
+    final volumeBeforeDrag = controller.value.volume;
+    await tester.drag(slider, const Offset(0, -24));
+    await tester.pump();
+    expect(controller.value.volume, isNot(closeTo(volumeBeforeDrag, 0.01)));
+    expect(
+      tester.widget<Slider>(slider).value,
+      closeTo(controller.value.volume, 0.001),
+    );
+
+    await mouse.moveTo(const Offset(20, 20));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+    expect(slider, findsNothing);
+  });
+
+  testWidgets(
+    'more actions open upward without moving the control bar and keep fullscreen last',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final controller = _RecordingVideoPlayerController(
+        const VideoPlayerValue(
+          duration: Duration(minutes: 1),
+          isInitialized: true,
+          size: Size(1920, 1080),
+        ),
+      );
+      addTearDown(controller.dispose);
+      var freeModeEnabled = false;
+      var pictureInPictureCalls = 0;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: buildThemedTestApp,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: SizedBox(
+              width: 300,
+              height: 400,
+              child: CustomVideoPlayer(
+                volumePreferences: _volumePreferences(),
+                subtitleSource: const _EmptySubtitleSource(),
+                controller: controller,
+                title: 'Video',
+                interactionMode: VideoPlayerInteractionMode.desktop,
+                onFreeModeChanged: (enabled) => freeModeEnabled = enabled,
+                onEnterPictureInPicture: () => pictureInPictureCalls++,
+                onToggleFullScreen: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final overflow = find.byKey(const Key('playback_overflow_button'));
+      final fullscreen = find.byKey(const Key('playback_fullscreen_button'));
+      expect(overflow, findsOneWidget);
+      expect(fullscreen, findsOneWidget);
+      expect(
+        tester.getRect(overflow).right,
+        lessThanOrEqualTo(tester.getRect(fullscreen).left),
+      );
+      expect(
+        tester
+            .widget<Icon>(
+              find.descendant(of: overflow, matching: find.byType(Icon)),
+            )
+            .icon,
+        Icons.settings_rounded,
+      );
+      expect(find.byKey(const Key('free_mode_settings_button')), findsNothing);
+
+      final progressTop = tester
+          .getRect(find.byKey(const Key('playback_progress_slider')))
+          .top;
+      await tester.tap(overflow);
+      await tester.pumpAndSettle();
+
+      final menu = find.byKey(const Key('playback_overflow_controls'));
+      expect(menu, findsOneWidget);
+      expect(find.byKey(const Key('free_mode_toggle')), findsOneWidget);
+      expect(tester.getRect(menu).bottom, lessThanOrEqualTo(progressTop));
+      expect(
+        tester.getRect(find.byKey(const Key('playback_progress_slider'))).top,
+        progressTop,
+      );
+
+      final danmakuRow = find.byKey(
+        const ValueKey('playback_overflow_control_slot_2'),
+      );
+      final pictureInPictureRow = find.byKey(
+        const ValueKey('playback_overflow_control_slot_3'),
+      );
+      Switch danmakuSwitch() => tester.widget<Switch>(
+        find.descendant(of: danmakuRow, matching: find.byType(Switch)),
+      );
+
+      expect(find.text('Danmaku'), findsOneWidget);
+      expect(danmakuSwitch().value, isTrue);
+      expect(
+        find.descendant(of: pictureInPictureRow, matching: find.byType(Switch)),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('free_mode_toggle')));
+      await tester.pump();
+      expect(freeModeEnabled, isTrue);
+
+      await tester.tap(find.text('Danmaku'));
+      await tester.pump();
+      expect(menu, findsOneWidget);
+      expect(danmakuSwitch().value, isFalse);
+
+      await tester.tap(find.text('Picture in picture'));
+      await tester.pumpAndSettle();
+      expect(pictureInPictureCalls, 1);
+      expect(menu, findsNothing);
+    },
+  );
+
+  testWidgets('more actions stack hidden controls into labeled rows', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = _RecordingVideoPlayerController(
+      const VideoPlayerValue(
+        duration: Duration(minutes: 1),
+        isInitialized: true,
+        size: Size(1920, 1080),
+      ),
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: buildThemedTestApp,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: SizedBox(
+            width: 300,
+            height: 400,
+            child: CustomVideoPlayer(
+              volumePreferences: _volumePreferences(),
+              subtitleSource: const _EmptySubtitleSource(),
+              controller: controller,
+              title: 'Video',
+              interactionMode: VideoPlayerInteractionMode.desktop,
+              onFreeModeChanged: (_) {},
+              onEnterPictureInPicture: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('playback_overflow_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mute'), findsOneWidget);
+    expect(find.text('Playback speed'), findsOneWidget);
+    expect(find.text('Danmaku'), findsOneWidget);
+    expect(find.text('Picture in picture'), findsOneWidget);
+
+    final rows = [
+      for (var index = 0; index < 4; index++)
+        tester.getRect(
+          find.byKey(ValueKey('playback_overflow_control_slot_$index')),
+        ),
+    ];
+    expect(rows.map((row) => row.left).toSet(), hasLength(1));
+    expect(rows[2].height, 52);
+    expect(rows[3].height, 52);
+    for (var index = 1; index < rows.length; index++) {
+      expect(rows[index].top, greaterThan(rows[index - 1].bottom));
+    }
+  });
+
+  testWidgets('playback route and more actions use shared control spacing', (
+    tester,
+  ) async {
+    final controller = _RecordingVideoPlayerController(
+      const VideoPlayerValue(
+        duration: Duration(minutes: 1),
+        isInitialized: true,
+        size: Size(1920, 1080),
+      ),
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: buildThemedTestApp,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: SizedBox(
+            width: 680,
+            height: 400,
+            child: CustomVideoPlayer(
+              volumePreferences: _volumePreferences(),
+              subtitleSource: const _EmptySubtitleSource(),
+              controller: controller,
+              title: 'Video',
+              interactionMode: VideoPlayerInteractionMode.desktop,
+              extraBottomWidget: const SizedBox.square(
+                key: Key('playback_route_stub'),
+                dimension: 40,
+                child: Icon(Icons.route_rounded),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final route = tester.getRect(find.byKey(const Key('playback_route_stub')));
+    final moreActions = tester.getRect(
+      find.byKey(const Key('playback_overflow_button')),
+    );
+    expect(moreActions.left - route.right, closeTo(4, 0.01));
+  });
+
+  testWidgets('playback speed menu opens upward on desktop hover', (
+    tester,
+  ) async {
+    final controller = _RecordingVideoPlayerController(
+      const VideoPlayerValue(
+        duration: Duration(minutes: 1),
+        isInitialized: true,
+        isPlaying: true,
+        size: Size(1920, 1080),
+      ),
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: buildThemedTestApp,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: SizedBox(
+            width: 900,
+            height: 500,
+            child: CustomVideoPlayer(
+              volumePreferences: _volumePreferences(),
+              subtitleSource: const _EmptySubtitleSource(),
+              controller: controller,
+              title: 'Video',
+              interactionMode: VideoPlayerInteractionMode.desktop,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final speed = byAppTooltip('Playback speed 1.00x');
+    expect(speed, findsOneWidget);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer();
+    await mouse.moveTo(tester.getCenter(speed));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+
+    final option = find.byKey(const ValueKey('playback_speed_option_2.0'));
+    final menu = find.byKey(const Key('playback_speed_menu_hover_region'));
+    expect(option, findsOneWidget);
+    expect(menu, findsOneWidget);
+    expect(tester.getRect(option).bottom, lessThan(tester.getRect(speed).top));
+    expect(
+      tester.getRect(menu).bottom,
+      closeTo(tester.getRect(speed).top, 0.01),
+    );
+
+    await mouse.moveTo(
+      Offset(tester.getCenter(menu).dx, tester.getRect(menu).bottom - 1),
+    );
+    await tester.pump(const Duration(milliseconds: 1200));
+    expect(option, findsOneWidget);
+
+    for (var second = 1; second <= 3; second++) {
+      controller.value = controller.value.copyWith(
+        position: Duration(seconds: second),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(option, findsOneWidget);
+    }
+
+    await mouse.moveTo(const Offset(10, 10));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+    expect(option, findsNothing);
+
+    await tester.tap(speed);
+    await tester.pump();
+    expect(option, findsOneWidget);
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pump();
+    expect(option, findsNothing);
+  });
+
+  testWidgets(
+    'playback speed stays open while the pointer remains on the button',
+    (tester) async {
+      final controller = _RecordingVideoPlayerController(
+        const VideoPlayerValue(
+          duration: Duration(minutes: 1),
+          isInitialized: true,
+          size: Size(1920, 1080),
+        ),
+      );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: buildThemedTestApp,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: SizedBox(
+              width: 900,
+              height: 500,
+              child: CustomVideoPlayer(
+                volumePreferences: _volumePreferences(),
+                subtitleSource: const _EmptySubtitleSource(),
+                controller: controller,
+                title: 'Video',
+                interactionMode: VideoPlayerInteractionMode.desktop,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final speed = byAppTooltip('Playback speed 1.00x');
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer();
+      final speedCenter = tester.getCenter(speed);
+      await mouse.moveTo(speedCenter);
+      await tester.pump(const Duration(milliseconds: 120));
+      final option = find.byKey(const ValueKey('playback_speed_option_2.0'));
+      expect(option, findsOneWidget);
+
+      await mouse.moveTo(speedCenter);
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(option, findsOneWidget);
+
+      await mouse.moveTo(const Offset(10, 10));
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(option, findsNothing);
+    },
+  );
+
+  testWidgets('volume stays open while the pointer remains on the button', (
+    tester,
+  ) async {
+    final controller = _RecordingVideoPlayerController(
+      const VideoPlayerValue(
+        duration: Duration(minutes: 1),
+        isInitialized: true,
+        volume: 0.5,
+      ),
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: buildThemedTestApp,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: SizedBox(
+            width: 900,
+            height: 500,
+            child: CustomVideoPlayer(
+              volumePreferences: _volumePreferences(),
+              subtitleSource: const _EmptySubtitleSource(),
+              controller: controller,
+              title: 'Video',
+              interactionMode: VideoPlayerInteractionMode.desktop,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final button = find.byKey(const Key('desktop_volume_button'));
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer();
+    final buttonCenter = tester.getCenter(button);
+    await mouse.moveTo(buttonCenter);
+    await tester.pump();
+    final slider = find.byKey(const Key('desktop_volume_slider'));
+    expect(slider, findsOneWidget);
+
+    await mouse.moveTo(buttonCenter);
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(slider, findsOneWidget);
+
+    await mouse.moveTo(const Offset(10, 10));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(slider, findsNothing);
   });
 
   testWidgets(
@@ -1025,6 +1594,109 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(selected, 'direct|1');
+  });
+
+  testWidgets('picture-in-picture exposes volume and playback speed controls', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(360, 202));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = _RecordingVideoPlayerController(
+      const VideoPlayerValue(
+        duration: Duration(minutes: 1),
+        isInitialized: true,
+        size: Size(1920, 1080),
+        volume: 0.25,
+      ),
+    );
+    final danmakuController = DanmakuController(const _EmptyDanmakuSource());
+    double? selectedSpeed;
+    addTearDown(controller.dispose);
+    addTearDown(danmakuController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: buildThemedTestApp,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: PictureInPicturePlaybackSurface(
+          controller: controller,
+          danmakuController: danmakuController,
+          emptyState: const SizedBox.shrink(),
+          canControlPlayback: true,
+          onPlaybackSpeedChanged: (speed) => selectedSpeed = speed,
+        ),
+      ),
+    );
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    await mouse.moveTo(
+      tester.getCenter(find.byKey(const Key('picture_in_picture_surface'))),
+    );
+    await tester.pump();
+
+    final volumeButton = find.byKey(
+      const Key('picture_in_picture_volume_button'),
+    );
+    final speedButton = find.byKey(
+      const Key('picture_in_picture_playback_speed_button'),
+    );
+    expect(volumeButton, findsOneWidget);
+    expect(speedButton, findsOneWidget);
+
+    await tester.tap(volumeButton);
+    await tester.pumpAndSettle();
+    final volumeSlider = find.byKey(
+      const Key('picture_in_picture_volume_slider'),
+    );
+    expect(volumeSlider, findsOneWidget);
+    await tester.tap(volumeSlider);
+    await tester.pump();
+    expect(controller.volumes, isNotEmpty);
+
+    await tester.tapAt(const Offset(2, 2));
+    await tester.pumpAndSettle();
+    await mouse.moveTo(
+      tester.getCenter(find.byKey(const Key('picture_in_picture_surface'))),
+    );
+    await tester.pump();
+    await tester.tap(speedButton);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('picture_in_picture_speed_options_list')),
+      findsOneWidget,
+    );
+    expect(find.byType(Scrollbar), findsNothing);
+    await tester.tap(
+      find.byKey(const ValueKey('picture_in_picture_speed_option_1.5')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(controller.playbackSpeeds, [1.5]);
+    expect(selectedSpeed, 1.5);
+
+    await mouse.moveTo(
+      tester.getCenter(find.byKey(const Key('picture_in_picture_surface'))),
+    );
+    await tester.pump();
+    await tester.tap(speedButton);
+    await tester.pumpAndSettle();
+    final speedList = find.byKey(
+      const Key('picture_in_picture_speed_options_list'),
+    );
+    final speedListCenter = tester.getCenter(speedList);
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: speedListCenter,
+        scrollDelta: const Offset(0, 100),
+      ),
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('picture_in_picture_speed_option_0.5')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('picture-in-picture keeps an empty playback surface mounted', (

@@ -11,6 +11,64 @@ import 'package:synctv_app/contracts/public_models.dart';
 import '../../test_app.dart';
 
 void main() {
+  testWidgets('add server dialog forwards the insecure TLS preference', (
+    tester,
+  ) async {
+    final gateway = _RecordingServerConnectionGateway();
+    var serverChangedCalls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: const [
+          ...AppLocalizations.localizationsDelegates,
+          FLocalizations.delegate,
+        ],
+        builder: (context, child) => DependencyScope<ServerConnectionGateway>(
+          value: gateway,
+          child: buildThemedTestApp(context, child),
+        ),
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => showServerSettingsDialog(
+                context: context,
+                onServerChanged: () => serverChangedCalls++,
+              ),
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('stale server info'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+    expect(
+      tester.getSize(find.widgetWithText(AppActionButton, 'Add server')).height,
+      tester.getSize(find.widgetWithText(AppActionButton, 'Done')).height,
+    );
+    await tester.tap(find.widgetWithText(AppActionButton, 'Add server'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsOneWidget);
+    await tester.enterText(
+      find.byType(TextField),
+      'https://self-signed.example.test',
+    );
+    await tester.tap(find.text('Allow insecure TLS'));
+    await tester.tap(find.widgetWithText(AppActionButton, 'Add'));
+    await tester.pumpAndSettle();
+
+    expect(gateway.address, 'https://self-signed.example.test');
+    expect(gateway.allowInsecureTls, isTrue);
+    expect(serverChangedCalls, 1);
+    expect(gateway.getServerInfoCalls, 2);
+    expect(find.textContaining('stale server info'), findsNothing);
+    await tester.pump(const Duration(seconds: 3));
+  });
+
   testWidgets('required server setup cannot close without an active server', (
     tester,
   ) async {
@@ -47,15 +105,164 @@ void main() {
       find.widgetWithText(AppActionButton, 'Done'),
     );
     expect(doneButton.onPressed, isNull);
+    expect(find.text('Server address'), findsNothing);
+
+    await tester.tap(find.widgetWithText(AppActionButton, 'Add server'));
+    await tester.pumpAndSettle();
+    expect(find.text('Server address'), findsOneWidget);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AppDialogHeader),
+        matching: find.byType(AppIconButton),
+      ),
+    );
+    await tester.pumpAndSettle();
 
     await tester.tapAt(const Offset(4, 4));
     await tester.pumpAndSettle();
-    expect(find.text('Server address'), findsOneWidget);
+    expect(find.widgetWithText(AppActionButton, 'Add server'), findsOneWidget);
 
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
-    expect(find.text('Server address'), findsOneWidget);
+    expect(find.widgetWithText(AppActionButton, 'Add server'), findsOneWidget);
   });
+
+  testWidgets('rapid add server taps open one dialog', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: const [
+          ...AppLocalizations.localizationsDelegates,
+          FLocalizations.delegate,
+        ],
+        builder: (context, child) => DependencyScope<ServerConnectionGateway>(
+          value: const _EmptyServerConnectionGateway(),
+          child: buildThemedTestApp(context, child),
+        ),
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => showServerSettingsDialog(context: context),
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    final addServerButton = find.widgetWithText(AppActionButton, 'Add server');
+    final openAddServer = tester
+        .widget<AppActionButton>(addServerButton)
+        .onPressed!;
+    openAddServer();
+    openAddServer();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Server address'), findsOneWidget);
+    expect(find.byType(AppDialogHeader, skipOffstage: false), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('server list and add dialog stay distinct at mobile width', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(360, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: const [
+          ...AppLocalizations.localizationsDelegates,
+          FLocalizations.delegate,
+        ],
+        builder: (context, child) => DependencyScope<ServerConnectionGateway>(
+          value: const _EmptyServerConnectionGateway(),
+          child: buildThemedTestApp(context, child),
+        ),
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => showServerSettingsDialog(context: context),
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    expect(find.text('Server address'), findsNothing);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.widgetWithText(AppActionButton, 'Add server'));
+    await tester.pumpAndSettle();
+    expect(find.text('Server address'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+}
+
+final class _RecordingServerConnectionGateway
+    implements ServerConnectionGateway {
+  String? address;
+  bool? allowInsecureTls;
+  int getServerInfoCalls = 0;
+  ServerConnectionProfile? _activeServer = const ServerConnectionProfile(
+    endpoint: 'https://old.example.test',
+    declaredServerId: 'old-server',
+    name: 'Old server',
+    isBuiltIn: false,
+    allowInsecureTls: false,
+  );
+
+  @override
+  ServerConnectionProfile? get activeServer => _activeServer;
+
+  @override
+  String get serverBaseUrl => _activeServer?.endpoint ?? '';
+
+  @override
+  List<ServerConnectionProfile> get servers => [?_activeServer];
+
+  @override
+  Future<ServerConnectionProfile> addServer(
+    String address, {
+    bool allowInsecureTls = false,
+  }) async {
+    this.address = address;
+    this.allowInsecureTls = allowInsecureTls;
+    return _activeServer = ServerConnectionProfile(
+      endpoint: address,
+      declaredServerId: 'server-1',
+      name: 'Server',
+      isBuiltIn: false,
+      allowInsecureTls: allowInsecureTls,
+    );
+  }
+
+  @override
+  Future<void> activateServer(String endpoint) async {}
+
+  @override
+  Future<ServerInfo> getServerInfo({bool refresh = false}) async {
+    getServerInfoCalls += 1;
+    if (getServerInfoCalls == 1) {
+      throw StateError('stale server info');
+    }
+    return const ServerInfo(serverId: 'server-1', serverName: 'Server');
+  }
+
+  @override
+  Future<void> removeServer(String endpoint) async {}
+
+  @override
+  Future<void> syncServerTime({bool refresh = false}) async {}
 }
 
 final class _EmptyServerConnectionGateway implements ServerConnectionGateway {
@@ -71,8 +278,10 @@ final class _EmptyServerConnectionGateway implements ServerConnectionGateway {
   List<ServerConnectionProfile> get servers => const [];
 
   @override
-  Future<ServerConnectionProfile> addServer(String address) =>
-      throw UnimplementedError();
+  Future<ServerConnectionProfile> addServer(
+    String address, {
+    bool allowInsecureTls = false,
+  }) => throw UnimplementedError();
 
   @override
   Future<void> activateServer(String endpoint) async {}
