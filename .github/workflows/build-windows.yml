@@ -1,0 +1,50 @@
+name: Build Windows Client
+on:
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: Built-in server URL
+        required: true
+        type: string
+        default: "https://tv.emoxw.cn"
+env:
+  FLUTTER_VERSION: "3.44.8"
+  RUST_VERSION: "1.97.1"
+jobs:
+  windows:
+    name: Windows x64 Release
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up build toolchain
+        uses: ./.github/actions/setup-build
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          flutter-architecture: x64
+          rust-version: ${{ env.RUST_VERSION }}
+          rust-targets: x86_64-pc-windows-msvc
+      - name: Build Windows release
+        shell: pwsh
+        run: |
+          flutter build windows `
+            --release `
+            --no-pub `
+            --dart-define SYNCTV_BUILT_IN_SERVER_URL="${{ github.event.inputs.server_url }}" `
+            --split-debug-info build/symbols/windows-x64
+      - name: Package Windows release
+        shell: pwsh
+        run: |
+          ./tool/ci/package_release.ps1 `
+            -Version "1.0.0" `
+            -Architecture x64 `
+            -OutputDirectory dist
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SyncTV-Windows-x64
+          path: dist/SyncTV-*.zip
+          if-no-files-found: error
