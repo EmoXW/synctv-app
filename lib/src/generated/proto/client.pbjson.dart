@@ -614,6 +614,34 @@ final $typed_data.Uint8List resourceDeliveryModeDescriptor = $convert.base64Deco
     'lGSUVEEAASJgoiUkVTT1VSQ0VfREVMSVZFUllfTU9ERV9OT1RJRllfT05MWRABEigKJFJFU09V'
     'UkNFX0RFTElWRVJZX01PREVfUFVTSF9TTkFQU0hPVBAC');
 
+@$core.Deprecated('Use realtimeTerminationCodeDescriptor instead')
+const RealtimeTerminationCode$json = {
+  '1': 'RealtimeTerminationCode',
+  '2': [
+    {'1': 'REALTIME_TERMINATION_CODE_UNSPECIFIED', '2': 0},
+    {'1': 'REALTIME_TERMINATION_CODE_CONNECTION_REVOKED', '2': 1},
+    {'1': 'REALTIME_TERMINATION_CODE_USER_ACCESS_REVOKED', '2': 2},
+    {'1': 'REALTIME_TERMINATION_CODE_ROOM_ACCESS_REVOKED', '2': 3},
+    {'1': 'REALTIME_TERMINATION_CODE_ROOM_MEMBERSHIP_REVOKED', '2': 4},
+    {'1': 'REALTIME_TERMINATION_CODE_GUEST_ACCESS_REVOKED', '2': 5},
+    {'1': 'REALTIME_TERMINATION_CODE_ROOM_DELETED', '2': 6},
+    {'1': 'REALTIME_TERMINATION_CODE_ROOM_BANNED', '2': 7},
+    {'1': 'REALTIME_TERMINATION_CODE_ROOM_OWNER_INACTIVE', '2': 8},
+  ],
+};
+
+/// Descriptor for `RealtimeTerminationCode`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List realtimeTerminationCodeDescriptor = $convert.base64Decode(
+    'ChdSZWFsdGltZVRlcm1pbmF0aW9uQ29kZRIpCiVSRUFMVElNRV9URVJNSU5BVElPTl9DT0RFX1'
+    'VOU1BFQ0lGSUVEEAASMAosUkVBTFRJTUVfVEVSTUlOQVRJT05fQ09ERV9DT05ORUNUSU9OX1JF'
+    'Vk9LRUQQARIxCi1SRUFMVElNRV9URVJNSU5BVElPTl9DT0RFX1VTRVJfQUNDRVNTX1JFVk9LRU'
+    'QQAhIxCi1SRUFMVElNRV9URVJNSU5BVElPTl9DT0RFX1JPT01fQUNDRVNTX1JFVk9LRUQQAxI1'
+    'CjFSRUFMVElNRV9URVJNSU5BVElPTl9DT0RFX1JPT01fTUVNQkVSU0hJUF9SRVZPS0VEEAQSMg'
+    'ouUkVBTFRJTUVfVEVSTUlOQVRJT05fQ09ERV9HVUVTVF9BQ0NFU1NfUkVWT0tFRBAFEioKJlJF'
+    'QUxUSU1FX1RFUk1JTkFUSU9OX0NPREVfUk9PTV9ERUxFVEVEEAYSKQolUkVBTFRJTUVfVEVSTU'
+    'lOQVRJT05fQ09ERV9ST09NX0JBTk5FRBAHEjEKLVJFQUxUSU1FX1RFUk1JTkFUSU9OX0NPREVf'
+    'Uk9PTV9PV05FUl9JTkFDVElWRRAI');
+
 @$core.Deprecated('Use chatMessageStatusDescriptor instead')
 const ChatMessageStatus$json = {
   '1': 'ChatMessageStatus',
@@ -1225,16 +1253,27 @@ const FnosMediaItemTarget$json = {
       '10': 'mediaGuid',
       '17': true
     },
+    {
+      '1': 'library_guid',
+      '3': 3,
+      '4': 1,
+      '5': 9,
+      '9': 1,
+      '10': 'libraryGuid',
+      '17': true
+    },
   ],
   '8': [
     {'1': '_media_guid'},
+    {'1': '_library_guid'},
   ],
 };
 
 /// Descriptor for `FnosMediaItemTarget`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List fnosMediaItemTargetDescriptor = $convert.base64Decode(
     'ChNGbm9zTWVkaWFJdGVtVGFyZ2V0EhsKCWl0ZW1fZ3VpZBgBIAEoCVIIaXRlbUd1aWQSIgoKbW'
-    'VkaWFfZ3VpZBgCIAEoCUgAUgltZWRpYUd1aWSIAQFCDQoLX21lZGlhX2d1aWQ=');
+    'VkaWFfZ3VpZBgCIAEoCUgAUgltZWRpYUd1aWSIAQESJgoMbGlicmFyeV9ndWlkGAMgASgJSAFS'
+    'C2xpYnJhcnlHdWlkiAEBQg0KC19tZWRpYV9ndWlkQg8KDV9saWJyYXJ5X2d1aWQ=');
 
 @$core.Deprecated('Use fnosTargetDescriptor instead')
 const FnosTarget$json = {
@@ -11253,6 +11292,15 @@ const ServerMessage$json = {
       '9': 0,
       '10': 'resourceObserveError'
     },
+    {
+      '1': 'termination',
+      '3': 32,
+      '4': 1,
+      '5': 11,
+      '6': '.synctv.client.RealtimeTermination',
+      '9': 0,
+      '10': 'termination'
+    },
   ],
   '8': [
     {'1': 'message'},
@@ -11269,7 +11317,31 @@ final $typed_data.Uint8List serverMessageDescriptor = $convert.base64Decode(
     'NlT2JzZXJ2ZWQSRQoOcmVzb3VyY2VfZXZlbnQYHiABKAsyHC5zeW5jdHYuY2xpZW50LlJlc291'
     'cmNlRXZlbnRIAFINcmVzb3VyY2VFdmVudBJbChZyZXNvdXJjZV9vYnNlcnZlX2Vycm9yGB8gAS'
     'gLMiMuc3luY3R2LmNsaWVudC5SZXNvdXJjZU9ic2VydmVFcnJvckgAUhRyZXNvdXJjZU9ic2Vy'
-    'dmVFcnJvckIJCgdtZXNzYWdl');
+    'dmVFcnJvchJGCgt0ZXJtaW5hdGlvbhggIAEoCzIiLnN5bmN0di5jbGllbnQuUmVhbHRpbWVUZX'
+    'JtaW5hdGlvbkgAUgt0ZXJtaW5hdGlvbkIJCgdtZXNzYWdl');
+
+@$core.Deprecated('Use realtimeTerminationDescriptor instead')
+const RealtimeTermination$json = {
+  '1': 'RealtimeTermination',
+  '2': [
+    {'1': 'message', '3': 1, '4': 1, '5': 9, '10': 'message'},
+    {
+      '1': 'code',
+      '3': 2,
+      '4': 1,
+      '5': 14,
+      '6': '.synctv.client.RealtimeTerminationCode',
+      '8': {},
+      '10': 'code'
+    },
+  ],
+};
+
+/// Descriptor for `RealtimeTermination`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List realtimeTerminationDescriptor = $convert.base64Decode(
+    'ChNSZWFsdGltZVRlcm1pbmF0aW9uEhgKB21lc3NhZ2UYASABKAlSB21lc3NhZ2USRAoEY29kZR'
+    'gCIAEoDjImLnN5bmN0di5jbGllbnQuUmVhbHRpbWVUZXJtaW5hdGlvbkNvZGVCCLpIBYIBAhAB'
+    'UgRjb2Rl');
 
 @$core.Deprecated('Use resourceObservedDescriptor instead')
 const ResourceObserved$json = {
@@ -17427,7 +17499,8 @@ const GetPublicSettingsResponse$json = {
       '1': 'room_password_policy',
       '3': 6,
       '4': 1,
-      '5': 9,
+      '5': 14,
+      '6': '.synctv.common.RoomPasswordPolicy',
       '10': 'roomPasswordPolicy'
     },
     {
@@ -17525,23 +17598,23 @@ final $typed_data.Uint8List getPublicSettingsResponseDescriptor = $convert.base6
     'JOYW1lEjIKFXJvb21fY3JlYXRpb25fZW5hYmxlZBgCIAEoCFITcm9vbUNyZWF0aW9uRW5hYmxl'
     'ZBIrChJtYXhfcm9vbXNfcGVyX3VzZXIYAyABKANSD21heFJvb21zUGVyVXNlchIuChNkZWZhdW'
     'x0X21heF9tZW1iZXJzGAQgASgDUhFkZWZhdWx0TWF4TWVtYmVycxJFCh9yb29tX2NyZWF0aW9u'
-    'X2FwcHJvdmFsX3JlcXVpcmVkGAUgASgIUhxyb29tQ3JlYXRpb25BcHByb3ZhbFJlcXVpcmVkEj'
-    'AKFHJvb21fcGFzc3dvcmRfcG9saWN5GAYgASgJUhJyb29tUGFzc3dvcmRQb2xpY3kSNAoWZW5h'
-    'YmxlX3Bhc3N3b3JkX3NpZ251cBgHIAEoCFIUZW5hYmxlUGFzc3dvcmRTaWdudXASPQobcGFzc3'
-    'dvcmRfc2lnbnVwX25lZWRfcmV2aWV3GAggASgIUhhwYXNzd29yZFNpZ251cE5lZWRSZXZpZXcS'
-    'LgoTZW5hYmxlX2VtYWlsX3NpZ251cBgJIAEoCFIRZW5hYmxlRW1haWxTaWdudXASIQoMZW5hYm'
-    'xlX2d1ZXN0GAogASgIUgtlbmFibGVHdWVzdBI3ChhlbWFpbF9zaWdudXBfbmVlZF9yZXZpZXcY'
-    'CyABKAhSFWVtYWlsU2lnbnVwTmVlZFJldmlldxIhCgxlbmFibGVfZW1haWwYDCABKAhSC2VuYW'
-    'JsZUVtYWlsEicKD2VuYWJsZV93ZWJhdXRobhgNIAEoCFIOZW5hYmxlV2ViYXV0aG4SJAoOd2Vi'
-    'YXV0aG5fcnBfaWQYDiABKAlSDHdlYmF1dGhuUnBJZBI0ChZlbmFibGVfd2ViYXV0aG5fc2lnbn'
-    'VwGA8gASgIUhRlbmFibGVXZWJhdXRoblNpZ251cBI9Cht3ZWJhdXRobl9zaWdudXBfbmVlZF9y'
-    'ZXZpZXcYECABKAhSGHdlYmF1dGhuU2lnbnVwTmVlZFJldmlldxJHCiFtYXhfcGlubmVkX2NoYX'
-    'RfbWVzc2FnZXNfcGVyX3Jvb20YESABKARSHG1heFBpbm5lZENoYXRNZXNzYWdlc1BlclJvb20S'
-    'LQoTdHNfZGlzZ3Vpc2VkX2FzX3BuZxgSIAEoCFIQdHNEaXNndWlzZWRBc1BuZxIzChNjdXN0b2'
-    '1fcHVibGlzaF9ob3N0GBMgASgJSABSEWN1c3RvbVB1Ymxpc2hIb3N0iAEBEjYKF2VtYWlsX3do'
-    'aXRlbGlzdF9lbmFibGVkGBQgASgIUhVlbWFpbFdoaXRlbGlzdEVuYWJsZWQSNgoXZW1haWxfd2'
-    'hpdGVsaXN0X2RvbWFpbnMYFSADKAlSFWVtYWlsV2hpdGVsaXN0RG9tYWluc0IWChRfY3VzdG9t'
-    'X3B1Ymxpc2hfaG9zdA==');
+    'X2FwcHJvdmFsX3JlcXVpcmVkGAUgASgIUhxyb29tQ3JlYXRpb25BcHByb3ZhbFJlcXVpcmVkEl'
+    'MKFHJvb21fcGFzc3dvcmRfcG9saWN5GAYgASgOMiEuc3luY3R2LmNvbW1vbi5Sb29tUGFzc3dv'
+    'cmRQb2xpY3lSEnJvb21QYXNzd29yZFBvbGljeRI0ChZlbmFibGVfcGFzc3dvcmRfc2lnbnVwGA'
+    'cgASgIUhRlbmFibGVQYXNzd29yZFNpZ251cBI9ChtwYXNzd29yZF9zaWdudXBfbmVlZF9yZXZp'
+    'ZXcYCCABKAhSGHBhc3N3b3JkU2lnbnVwTmVlZFJldmlldxIuChNlbmFibGVfZW1haWxfc2lnbn'
+    'VwGAkgASgIUhFlbmFibGVFbWFpbFNpZ251cBIhCgxlbmFibGVfZ3Vlc3QYCiABKAhSC2VuYWJs'
+    'ZUd1ZXN0EjcKGGVtYWlsX3NpZ251cF9uZWVkX3JldmlldxgLIAEoCFIVZW1haWxTaWdudXBOZW'
+    'VkUmV2aWV3EiEKDGVuYWJsZV9lbWFpbBgMIAEoCFILZW5hYmxlRW1haWwSJwoPZW5hYmxlX3dl'
+    'YmF1dGhuGA0gASgIUg5lbmFibGVXZWJhdXRobhIkCg53ZWJhdXRobl9ycF9pZBgOIAEoCVIMd2'
+    'ViYXV0aG5ScElkEjQKFmVuYWJsZV93ZWJhdXRobl9zaWdudXAYDyABKAhSFGVuYWJsZVdlYmF1'
+    'dGhuU2lnbnVwEj0KG3dlYmF1dGhuX3NpZ251cF9uZWVkX3JldmlldxgQIAEoCFIYd2ViYXV0aG'
+    '5TaWdudXBOZWVkUmV2aWV3EkcKIW1heF9waW5uZWRfY2hhdF9tZXNzYWdlc19wZXJfcm9vbRgR'
+    'IAEoBFIcbWF4UGlubmVkQ2hhdE1lc3NhZ2VzUGVyUm9vbRItChN0c19kaXNndWlzZWRfYXNfcG'
+    '5nGBIgASgIUhB0c0Rpc2d1aXNlZEFzUG5nEjMKE2N1c3RvbV9wdWJsaXNoX2hvc3QYEyABKAlI'
+    'AFIRY3VzdG9tUHVibGlzaEhvc3SIAQESNgoXZW1haWxfd2hpdGVsaXN0X2VuYWJsZWQYFCABKA'
+    'hSFWVtYWlsV2hpdGVsaXN0RW5hYmxlZBI2ChdlbWFpbF93aGl0ZWxpc3RfZG9tYWlucxgVIAMo'
+    'CVIVZW1haWxXaGl0ZWxpc3REb21haW5zQhYKFF9jdXN0b21fcHVibGlzaF9ob3N0');
 
 @$core.Deprecated('Use getServerInfoRequestDescriptor instead')
 const GetServerInfoRequest$json = {
@@ -20562,6 +20635,7 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
       ListPlaybackHistoryResponse$json,
   '.synctv.client.PlaybackHistoryEntry': PlaybackHistoryEntry$json,
   '.synctv.client.ResourceObserveError': ResourceObserveError$json,
+  '.synctv.client.RealtimeTermination': RealtimeTermination$json,
   '.synctv.client.WatchPlaybackStateRequest': WatchPlaybackStateRequest$json,
   '.synctv.client.WatchPlaybackStateEvent': WatchPlaybackStateEvent$json,
   '.synctv.client.WatchPlaybackRequest': WatchPlaybackRequest$json,

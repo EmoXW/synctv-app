@@ -239,10 +239,11 @@ abstract interface class ProviderGateway {
   Future<FnosMediaListPage> listFnosMediaItems(
     String serverId, {
     FnosMediaCollection collection = FnosMediaCollection.library,
-    String ancestorGuid = '',
+    String libraryGuid = '',
+    String parentGuid = '',
     int page = 1,
     int pageSize = 50,
-    List<String> mediaTypes = const ['Movie', 'TV', 'Directory', 'Video'],
+    List<String> mediaTypes = const [],
     String search = '',
     String instanceName = '',
   });
@@ -260,7 +261,8 @@ abstract interface class ProviderGateway {
     String playlistId = '',
     String? target,
     String search = '',
-    String sourceProvider = '',
+    source_enum.SourceProvider sourceProvider =
+        source_enum.SourceProvider.SOURCE_PROVIDER_UNSPECIFIED,
     Map<String, dynamic>? previewSourceConfig,
     source_config.PlaylistSourceConfig? typedPreviewSourceConfig,
     String providerInstanceName = '',
