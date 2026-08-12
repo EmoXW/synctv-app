@@ -19,6 +19,12 @@ jobs:
       - name: Enable long paths
         shell: pwsh
         run: git config --system core.longpaths true
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://jrsoftware.org/download.php/is.exe" -OutFile "innosetup.exe"
+          Start-Process -FilePath ".\innosetup.exe" -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
+          Remove-Item ".\innosetup.exe"
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -50,5 +56,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: SyncTV-Windows-x64
-          path: dist/SyncTV-*.zip
+          path: dist/*
           if-no-files-found: error
