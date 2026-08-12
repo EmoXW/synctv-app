@@ -1,0 +1,45 @@
+name: Build iOS
+on:
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: Built-in server URL
+        required: true
+        type: string
+        default: "https://tv.emoxw.cn"
+env:
+  FLUTTER_VERSION: "3.44.8"
+  RUST_VERSION: "1.97.1"
+jobs:
+  ios:
+    name: iOS unsigned IPA
+    runs-on: macos-26
+    timeout-minutes: 75
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up build toolchain
+        uses: ./.github/actions/setup-build
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          flutter-architecture: arm64
+          rust-version: ${{ env.RUST_VERSION }}
+          rust-targets: aarch64-apple-darwin,aarch64-apple-ios
+      - name: Build iOS archive (unsigned)
+        run: |
+          flutter build ios --release --no-pub --no-codesign \
+            --dart-define SYNCTV_BUILT_IN_SERVER_URL="${{ github.event.inputs.server_url }}"
+      - name: Package .app into .ipa
+        run: |
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/SyncTV.app
+          zip -r SyncTV-unsigned.ipa Payload
+          rm -rf Payload
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SyncTV-iOS-unsigned
+          path: SyncTV-unsigned.ipa
+          if-no-files-found: error
