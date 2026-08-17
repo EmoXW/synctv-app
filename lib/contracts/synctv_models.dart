@@ -1038,6 +1038,16 @@ class RoomMediaEntry {
   }
 
   static bool _isStreamDanmu(client.PlaybackDanmaku danmaku) {
+    final delivery = danmaku.delivery;
+    if (delivery ==
+        client.PlaybackDanmakuDelivery.PLAYBACK_DANMAKU_DELIVERY_EVENT_STREAM) {
+      return true;
+    }
+    if (delivery ==
+        client.PlaybackDanmakuDelivery.PLAYBACK_DANMAKU_DELIVERY_DOCUMENT) {
+      return false;
+    }
+
     final format = danmaku.format.trim().toLowerCase();
     if (format == 'synctv-bilibili-live') return true;
     if (format == 'synctv-twitch-live') return true;

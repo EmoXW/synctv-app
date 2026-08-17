@@ -608,16 +608,7 @@ class _RoomScreenState extends State<RoomScreen>
       _handleRealtimeLogMaxEntriesChanged,
     );
     _danmakuController.onStreamAccessExpired = () {
-      final status = _currentStatus;
-      if (status?.entry?.url.isNotEmpty == true) {
-        unawaited(
-          _applyPlaybackStatus(
-            status!,
-            forceReloadVideo: true,
-            forceSeek: true,
-          ),
-        );
-      }
+      unawaited(_refreshDanmakuStreamAccess());
     };
 
     // Initialize independent voice-chat and P2P-media sessions.
@@ -2847,14 +2838,24 @@ class _RoomScreenState extends State<RoomScreen>
     final danmuUrl = nextEntry.danmu == null
         ? null
         : _resourceUrlResolver.resolve(nextEntry.danmu!);
+    final danmuHeaders = authenticatedServerResourceHeaders(
+      _resourceUrlResolver,
+      nextEntry.danmu ?? '',
+      nextEntry.danmuHeaders,
+    );
+    final streamDanmuHeaders = authenticatedServerResourceHeaders(
+      _resourceUrlResolver,
+      nextEntry.streamDanmu ?? '',
+      nextEntry.streamDanmuHeaders,
+    );
 
     _danmakuController.updateConfig(
       danmakuUrl: danmuUrl,
-      danmakuHeaders: nextEntry.danmuHeaders,
+      danmakuHeaders: danmuHeaders,
       danmakuP2pDelivery: nextEntry.danmuP2pDelivery,
       localizeStaticResource: _resolveDanmakuPlaybackResource,
       streamDanmakuUrl: streamUrl,
-      streamDanmakuHeaders: nextEntry.streamDanmuHeaders,
+      streamDanmakuHeaders: streamDanmuHeaders,
       controller: _videoPlayerController,
       preserveLoadedDocument:
           previousEntry?.playbackAttachmentIdentity ==
@@ -2864,6 +2865,19 @@ class _RoomScreenState extends State<RoomScreen>
               previousEntry!.danmuP2pDelivery!.swarmId !=
                   nextEntry.danmuP2pDelivery!.swarmId),
     );
+  }
+
+  Future<void> _refreshDanmakuStreamAccess() async {
+    try {
+      final refreshed = await _sessionGateway.refreshSessionAfterUnauthorized();
+      if (!mounted || !refreshed) return;
+
+      final entry = _currentStatus?.entry;
+      if (entry == null) return;
+      _updateDanmakuResources(previousEntry: entry, nextEntry: entry);
+    } catch (error) {
+      debugPrint('Failed to refresh danmaku stream access: $error');
+    }
   }
 
   void _startEndedLiveStreamDrain() {

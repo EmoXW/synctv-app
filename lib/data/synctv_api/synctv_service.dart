@@ -112,6 +112,9 @@ class SyncTvService {
 
   static Future<String?> getToken() => _runtime.getToken();
 
+  static Future<bool> refreshSessionAfterUnauthorized() =>
+      _runtime.refreshSessionAfterUnauthorized();
+
   static Future<Uri> createRoomWebSocketUri(String roomId) {
     return _runtime.createRoomWebSocketUri(roomId);
   }
@@ -1087,12 +1090,14 @@ class SyncTvService {
     String playlistId, {
     required String name,
     String? description,
+    source_config.PlaylistSourceConfig? sourceConfig,
   }) async {
     return _domains.roomMedia.updatePlaylist(
       roomId,
       playlistId,
       name: name,
       description: description,
+      sourceConfig: sourceConfig,
     );
   }
 
