@@ -6,13 +6,15 @@ class RtmpPublishKeyInfo {
   final String publishKey;
   final String rtmpUrl;
   final String streamKey;
-  final int expiresAt;
+  final int? expiresAt;
+  final client_enum.PublishKeyType keyType;
 
   const RtmpPublishKeyInfo({
     required this.publishKey,
     required this.rtmpUrl,
     required this.streamKey,
     required this.expiresAt,
+    required this.keyType,
   });
 }
 
@@ -28,6 +30,7 @@ class RoomMediaLibraryPage {
   final bool usesCursor;
   final String nextCursor;
   final int page;
+  final bool supportsSearch;
 
   const RoomMediaLibraryPage({
     required this.playlists,
@@ -41,6 +44,7 @@ class RoomMediaLibraryPage {
     required this.usesCursor,
     required this.nextCursor,
     required this.page,
+    required this.supportsSearch,
   });
 
   List<RoomMediaEntry> get entries => [...playlists, ...media, ...dynamicItems];

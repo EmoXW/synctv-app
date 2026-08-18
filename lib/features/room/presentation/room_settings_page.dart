@@ -10,6 +10,7 @@ import 'package:synctv_app/features/room/application/room_realtime_protocol.dart
 import 'package:synctv_app/features/room/domain/room_realtime.dart';
 import 'package:synctv_app/contracts/room_management_models.dart';
 import 'package:synctv_app/contracts/room_media_models.dart';
+import 'package:synctv_app/contracts/discovered_source.dart';
 import 'package:synctv_app/contracts/source_config_codec.dart';
 import 'package:synctv_app/contracts/synctv_models.dart';
 import 'package:synctv_app/features/content_reports/presentation/content_reports_view.dart';
@@ -37,6 +38,10 @@ import 'package:synctv_app/core/presentation/notifications/app_notifications.dar
 import 'package:synctv_app/core/presentation/widgets/app_form_controls.dart';
 import 'package:synctv_app/core/presentation/widgets/app_responsive_layout.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media_dialog.dart';
+import 'package:synctv_app/features/media_library/presentation/add_media/playback_proxy_mode_control.dart';
+import 'package:synctv_app/features/providers/application/provider_gateway.dart';
+import 'package:synctv_app/src/generated/proto/providers/common.pb.dart'
+    as provider_common;
 import 'package:synctv_app/features/room/presentation/widgets/chat_read_receipts_dialog.dart';
 import 'package:synctv_app/features/room/presentation/widgets/chat_reaction_users_dialog.dart';
 import 'package:synctv_app/features/room/presentation/widgets/free_mode_settings_fields.dart';
@@ -156,6 +161,7 @@ class RoomSettingsPage extends StatefulWidget {
   final String roomName;
   final String creatorId;
   final String currentUserId;
+  final bool isPublic;
   final SyncTvRoomSettings currentSettings;
   final RoomRealtimeSession realtime;
   final bool canViewPlaybackHistory;
@@ -169,6 +175,7 @@ class RoomSettingsPage extends StatefulWidget {
     required this.roomName,
     this.creatorId = '',
     this.currentUserId = '',
+    required this.isPublic,
     required this.currentSettings,
     required this.realtime,
     required this.p2pMediaPreferences,
@@ -270,6 +277,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
   _RealtimeDiagnosticsPane _realtimePane = _RealtimeDiagnosticsPane.overview;
 
   bool _allowGuestJoin = false;
+  late bool _isPublic;
   bool _requireApproval = false;
   bool _allowAutoJoin = true;
   bool _chatEnabled = true;
@@ -290,6 +298,8 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
   bool _iceLoading = false;
   bool _coverUpdating = false;
   bool _passwordUpdating = false;
+  bool _visibilityUpdating = false;
+  int _visibilityMutationGeneration = 0;
   bool _freeModeSaving = false;
   bool _isDisposing = false;
   ChatReadStateInfo? _chatReadState;
@@ -322,6 +332,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
     _tabController = TabController(length: _sectionCount, vsync: this);
     _tabController.addListener(_handleTabChanged);
     _settings = widget.currentSettings;
+    _isPublic = widget.isPublic;
     _playbackModeConfig = _playbackModePreferences.value;
     _currentUserId = widget.currentUserId;
     _passwordController = TextEditingController();
@@ -488,10 +499,16 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
   }
 
   Future<void> _loadRoomInfo() async {
+    final visibilityGeneration = _visibilityMutationGeneration;
     try {
       final room = await _roomGateway.getRoomInfo(widget.roomId);
       if (!mounted) return;
-      setState(() => _roomInfo = room);
+      setState(() {
+        _roomInfo = room;
+        if (visibilityGeneration == _visibilityMutationGeneration) {
+          _isPublic = room.isPublic;
+        }
+      });
     } catch (e) {
       debugPrint('Load room info failed: $e');
     }
@@ -519,6 +536,49 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
       }
     } finally {
       if (mounted) setState(() => _coverUpdating = false);
+    }
+  }
+
+  Future<void> _updateRoomVisibility(bool isPublic) async {
+    if (_visibilityUpdating || isPublic == _isPublic) return;
+    if (!isPublic) {
+      setState(() => _visibilityUpdating = true);
+      final confirmed = await _confirm(
+        title: context.l10n.makeRoomPrivate,
+        content: context.l10n.makeRoomPrivateConfirmation,
+        action: context.l10n.makePrivate,
+        destructive: true,
+      );
+      if (!mounted) return;
+      if (!confirmed) {
+        setState(() => _visibilityUpdating = false);
+        return;
+      }
+    }
+    final previousValue = _isPublic;
+    setState(() {
+      _isPublic = isPublic;
+      _visibilityUpdating = true;
+      _visibilityMutationGeneration += 1;
+    });
+    try {
+      final room = await _roomGateway.updateRoomVisibility(
+        widget.roomId,
+        isPublic,
+      );
+      if (!mounted) return;
+      setState(() {
+        _roomInfo = room;
+        _isPublic = room.isPublic;
+      });
+      AppNotifications.showSuccess(context, context.l10n.roomVisibilityUpdated);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isPublic = previousValue);
+        AppNotifications.showError(context, context.l10n.updateFailed('$e'));
+      }
+    } finally {
+      if (mounted) setState(() => _visibilityUpdating = false);
     }
   }
 
@@ -1747,6 +1807,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
       } else {
         _mediaTargetStack.add(target);
       }
+      _mediaSearchController.clear();
       _mediaPage = null;
       _mediaWatchVersion = '';
     });
@@ -2438,19 +2499,68 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
   }
 
   Future<void> _renameEntry(RoomMediaEntry entry) async {
-    if (!_canMutateCurrentMediaScope || entry.isProviderDynamicEntry) {
+    if (!_canMutateCurrentMediaScope || entry.isProviderDynamicItem) {
       AppNotifications.showInfo(context, context.l10n.dynamicContentReadOnly);
       return;
     }
+    provider_common.PlaybackProxyPolicy? playbackProxyPolicy;
+    final mediaSourceConfig = entry.id.startsWith('med_')
+        ? SourceConfigCodec.mediaSourceConfigFromMap(
+            sourceProvider: entry.sourceProvider,
+            sourceConfig: entry.sourceConfig,
+          )
+        : null;
+    final playlistSourceConfig = entry.id.startsWith('pl_')
+        ? SourceConfigCodec.playlistSourceConfigFromMap(
+            sourceProvider: entry.sourceProvider,
+            sourceConfig: entry.sourceConfig,
+          )
+        : null;
+    final discoveredSource = switch ((
+      mediaSourceConfig,
+      playlistSourceConfig,
+    )) {
+      (final media?, _) => provider_common.DiscoveredSource(
+        media: media,
+        providerInstanceName: entry.providerInstanceName,
+      ),
+      (_, final playlist?) => provider_common.DiscoveredSource(
+        playlist: playlist,
+        providerInstanceName: entry.providerInstanceName,
+      ),
+      _ => null,
+    };
+    if (discoveredSource != null) {
+      try {
+        playbackProxyPolicy = await DependencyScope.read<ProviderGateway>(
+          context,
+        ).resolvePlaybackProxyPolicy(discoveredSource);
+      } catch (error) {
+        if (mounted) {
+          AppNotifications.showWarning(
+            context,
+            context.l10n.playbackProxyPolicyUnavailable('$error'),
+          );
+        }
+      }
+    }
+    if (!mounted) return;
     final input = await _showEntryEditDialog(
       title: entry.isPlaylist
           ? context.l10n.editPlaylist
           : context.l10n.editMedia,
       initialName: entry.name,
       initialDescription: entry.description,
+      playbackProxyPolicy: playbackProxyPolicy,
     );
     if (input == null || input.name.isEmpty) return;
-    if (input.name == entry.name && input.description == entry.description) {
+    final playbackProxyMode = input.playbackProxyMode;
+    final playbackProxyModeChanged =
+        playbackProxyMode != null &&
+        playbackProxyMode != playbackProxyPolicy?.currentMode;
+    if (input.name == entry.name &&
+        input.description == entry.description &&
+        !playbackProxyModeChanged) {
       return;
     }
     try {
@@ -2460,6 +2570,12 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
           entry.id,
           name: input.name,
           description: input.description,
+          sourceConfig: playbackProxyModeChanged && playlistSourceConfig != null
+              ? provider_common.DiscoveredSource(
+                  playlist: playlistSourceConfig,
+                  providerInstanceName: entry.providerInstanceName,
+                ).withPlaybackProxyMode(playbackProxyMode).requirePlaylist()
+              : null,
         );
       } else if (entry.id.startsWith('med_')) {
         await _mediaLibraryGateway.editMedia(
@@ -2467,11 +2583,19 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
           entry.id,
           name: input.name,
           description: input.description,
+          playbackProxyMode: playbackProxyModeChanged
+              ? playbackProxyMode
+              : null,
         );
       }
       await _loadMediaLibrary();
       if (mounted) {
-        AppNotifications.showSuccess(context, context.l10n.nameUpdated);
+        AppNotifications.showSuccess(
+          context,
+          playbackProxyModeChanged
+              ? context.l10n.settingsUpdated
+              : context.l10n.nameUpdated,
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -2481,7 +2605,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
   }
 
   Future<void> _deleteEntry(RoomMediaEntry entry) async {
-    if (!_canMutateCurrentMediaScope || entry.isProviderDynamicEntry) {
+    if (!_canMutateCurrentMediaScope || entry.isProviderDynamicItem) {
       AppNotifications.showInfo(context, context.l10n.dynamicContentReadOnly);
       return;
     }
@@ -2540,7 +2664,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
           final canMutate =
               _canMutateCurrentMediaScope &&
               (detail.id.startsWith('pl_') || detail.id.startsWith('med_')) &&
-              !detail.isProviderDynamicEntry;
+              !detail.isProviderDynamicItem;
           return AppSafeArea(
             child: AppSingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -2721,7 +2845,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
 
   Future<void> _updateEntryCover(RoomMediaEntry entry) async {
     if (!_canMutateCurrentMediaScope ||
-        entry.isProviderDynamicEntry ||
+        entry.isProviderDynamicItem ||
         (!entry.id.startsWith('pl_') && !entry.id.startsWith('med_'))) {
       return;
     }
@@ -2757,7 +2881,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
 
   Future<void> _clearEntryCover(RoomMediaEntry entry) async {
     if (!_canMutateCurrentMediaScope ||
-        entry.isProviderDynamicEntry ||
+        entry.isProviderDynamicItem ||
         (!entry.id.startsWith('pl_') && !entry.id.startsWith('med_'))) {
       return;
     }
@@ -2783,7 +2907,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
 
   Future<void> _updateEntryThumbnail(RoomMediaEntry entry) async {
     if (!_canMutateCurrentMediaScope ||
-        entry.isProviderDynamicEntry ||
+        entry.isProviderDynamicItem ||
         !entry.id.startsWith('med_')) {
       return;
     }
@@ -2811,7 +2935,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
 
   Future<void> _clearEntryThumbnail(RoomMediaEntry entry) async {
     if (!_canMutateCurrentMediaScope ||
-        entry.isProviderDynamicEntry ||
+        entry.isProviderDynamicItem ||
         !entry.id.startsWith('med_')) {
       return;
     }
@@ -3057,7 +3181,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
   }
 
   Future<void> _moveMedia(RoomMediaEntry entry) async {
-    if (!_canMutateCurrentMediaScope || entry.isProviderDynamicEntry) {
+    if (!_canMutateCurrentMediaScope || entry.isProviderDynamicItem) {
       AppNotifications.showInfo(context, context.l10n.dynamicContentReadOnly);
       return;
     }
@@ -3094,7 +3218,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
     RoomMediaEntry entry,
     int direction,
   ) async {
-    if (!_canMutateCurrentMediaScope || entry.isProviderDynamicEntry) {
+    if (!_canMutateCurrentMediaScope || entry.isProviderDynamicItem) {
       AppNotifications.showInfo(context, context.l10n.dynamicContentReadOnly);
       return;
     }
@@ -3308,42 +3432,56 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
     required String title,
     String initialName = '',
     String initialDescription = '',
+    provider_common.PlaybackProxyPolicy? playbackProxyPolicy,
   }) {
     final nameController = TextEditingController(text: initialName);
     final descriptionController = TextEditingController(
       text: initialDescription,
     );
+    var playbackProxyMode = playbackProxyPolicy?.currentMode;
     return AppDialogs.showStyledDialog<_EntryEditResult>(
       context: context,
       title: title,
       icon: const Icon(Icons.edit_outlined),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AppTextField(
-              controller: nameController,
-              label: context.l10n.name,
-              autofocus: true,
-              onSubmitted: (_) {
-                Navigator.pop(
-                  context,
-                  _EntryEditResult(
-                    nameController.text.trim(),
-                    descriptionController.text.trim(),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            AppTextField(
-              controller: descriptionController,
-              label: context.l10n.description,
-              minLines: 2,
-              maxLines: 4,
-            ),
-          ],
+        child: StatefulBuilder(
+          builder: (context, setDialogState) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AppTextField(
+                controller: nameController,
+                label: context.l10n.name,
+                autofocus: true,
+                onSubmitted: (_) {
+                  Navigator.pop(
+                    context,
+                    _EntryEditResult(
+                      nameController.text.trim(),
+                      descriptionController.text.trim(),
+                      playbackProxyMode,
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              AppTextField(
+                controller: descriptionController,
+                label: context.l10n.description,
+                minLines: 2,
+                maxLines: 4,
+              ),
+              if (playbackProxyPolicy != null && playbackProxyMode != null) ...[
+                const SizedBox(height: 16),
+                PlaybackProxyModeControl(
+                  value: playbackProxyMode!,
+                  policy: playbackProxyPolicy,
+                  onChanged: (value) =>
+                      setDialogState(() => playbackProxyMode = value),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
       actions: [
@@ -3355,6 +3493,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
             _EntryEditResult(
               nameController.text.trim(),
               descriptionController.text.trim(),
+              playbackProxyMode,
             ),
           ),
           text: context.l10n.save,
@@ -3687,7 +3826,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
     String title,
     String? subtitle,
     bool value,
-    ValueChanged<bool> onChanged,
+    ValueChanged<bool>? onChanged,
     ThemeData theme,
     bool isDark,
   ) {
@@ -3904,6 +4043,17 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
         _buildSurface(
           isDark: isDark,
           children: [
+            _buildSwitchItem(
+              context.l10n.publicRoom,
+              _isPublic
+                  ? context.l10n.publicRoomVisibilityDescription
+                  : context.l10n.privateRoomVisibilityDescription,
+              _isPublic,
+              _visibilityUpdating ? null : _updateRoomVisibility,
+              theme,
+              isDark,
+            ),
+            _buildDivider(theme),
             _buildSwitchItem(
               context.l10n.allowGuestJoin,
               context.l10n.guestTokenCurrentRoomOnly,
@@ -4380,11 +4530,14 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
             child: Column(
               children: [
-                _buildSearchField(
-                  controller: _mediaSearchController,
-                  label: context.l10n.searchMediaOrPlaylist,
-                  onSearch: _reloadMediaLibrary,
-                ),
+                if (page == null ||
+                    page.supportsSearch ||
+                    !_isInsideDynamicMediaPlaylist)
+                  _buildSearchField(
+                    controller: _mediaSearchController,
+                    label: context.l10n.searchMediaOrPlaylist,
+                    onSearch: _reloadMediaLibrary,
+                  ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -5698,7 +5851,7 @@ class _RoomSettingsPageState extends State<RoomSettingsPage>
     final canMutate =
         _canMutateCurrentMediaScope &&
         isPersisted &&
-        !entry.isProviderDynamicEntry;
+        !entry.isProviderDynamicItem;
     final playlistIndex = entry.id.startsWith('pl_')
         ? _mediaPage?.playlists.indexWhere((item) => item.id == entry.id) ?? -1
         : -1;
@@ -7431,8 +7584,9 @@ enum _MediaAction {
 class _EntryEditResult {
   final String name;
   final String description;
+  final source_enum.PlaybackProxyMode? playbackProxyMode;
 
-  const _EntryEditResult(this.name, this.description);
+  const _EntryEditResult(this.name, this.description, [this.playbackProxyMode]);
 }
 
 class _MediaMoveTarget {

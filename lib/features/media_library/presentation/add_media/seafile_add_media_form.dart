@@ -8,6 +8,7 @@ import 'package:synctv_app/core/presentation/widgets/app_form_controls.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media/discovery_browser.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media/provider_account_action.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media/playback_proxy_mode_control.dart';
+import 'package:synctv_app/features/media_library/presentation/add_media/provider_workspace.dart';
 import 'package:synctv_app/src/generated/proto/providers/common.pb.dart'
     as provider_common;
 import 'package:synctv_app/src/generated/proto/source_config.pbenum.dart'
@@ -76,6 +77,9 @@ class _SeafileAddMediaFormState extends State<SeafileAddMediaForm> {
   source_enum.PlaybackProxyMode _proxyMode =
       source_enum.PlaybackProxyMode.PLAYBACK_PROXY_MODE_AUTO;
 
+  provider_common.DiscoveredSource? get _playbackPolicySource =>
+      _selection.entries.firstOrNull?.source ?? _listSource;
+
   @override
   void initState() {
     super.initState();
@@ -127,13 +131,14 @@ class _SeafileAddMediaFormState extends State<SeafileAddMediaForm> {
         ),
       );
     }
-    return Column(
+    final controls = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _bindSelector(),
         const SizedBox(height: 10),
         PlaybackProxyModeControl(
           value: _proxyMode,
+          source: _playbackPolicySource,
           onChanged: (value) => setState(() => _proxyMode = value),
         ),
         const SizedBox(height: 10),
@@ -163,6 +168,8 @@ class _SeafileAddMediaFormState extends State<SeafileAddMediaForm> {
                     _mode = selection.single;
                     _page = 1;
                     _items = const [];
+                    _listSource = null;
+                    _selection.clear();
                     if (_mode != SeafileBrowseMode.search) {
                       _searchController.clear();
                     }
@@ -193,11 +200,15 @@ class _SeafileAddMediaFormState extends State<SeafileAddMediaForm> {
           const SizedBox(height: 10),
         ],
         _locationBar(),
-        const SizedBox(height: 8),
+      ],
+    );
+    final results = Column(
+      children: [
         Expanded(child: _loading ? const AppLoadingIndicator() : _list()),
         _pagination(),
       ],
     );
+    return ProviderWorkspace(controls: controls, results: results);
   }
 
   Widget _bindSelector() => ProviderAccountSelector<SeafileBindInfo>(
@@ -263,7 +274,9 @@ class _SeafileAddMediaFormState extends State<SeafileAddMediaForm> {
     };
     return DiscoveryBrowser(
       selectionController: _selection,
-      selectionScope: _bind?.id,
+      selectionScope:
+          '${_bind?.id}:${_mode.name}:$_repositoryId:$_path:${_searchController.text}',
+      onSelectionChanged: () => setState(() {}),
       items: [
         for (final item in _items)
           DiscoveryBrowserEntry(
@@ -422,6 +435,7 @@ class _SeafileAddMediaFormState extends State<SeafileAddMediaForm> {
     setState(() {
       _loading = true;
       _listSource = null;
+      _selection.clear();
     });
     try {
       final page = await (widget.pageLoader ?? _defaultLoader)(

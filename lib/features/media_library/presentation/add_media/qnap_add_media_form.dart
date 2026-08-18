@@ -8,6 +8,7 @@ import 'package:synctv_app/core/presentation/widgets/app_form_controls.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media/discovery_browser.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media/provider_account_action.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media/playback_proxy_mode_control.dart';
+import 'package:synctv_app/features/media_library/presentation/add_media/provider_workspace.dart';
 import 'package:synctv_app/src/generated/proto/providers/common.pb.dart'
     as provider_common;
 import 'package:synctv_app/src/generated/proto/source_config.pbenum.dart'
@@ -61,6 +62,9 @@ class _QnapAddMediaFormState extends State<QnapAddMediaForm> {
   source_enum.PlaybackProxyMode _proxyMode =
       source_enum.PlaybackProxyMode.PLAYBACK_PROXY_MODE_AUTO;
 
+  provider_common.DiscoveredSource? get _playbackPolicySource =>
+      _selection.entries.firstOrNull?.source ?? _listSource;
+
   @override
   void initState() {
     super.initState();
@@ -113,13 +117,14 @@ class _QnapAddMediaFormState extends State<QnapAddMediaForm> {
         ),
       );
     }
-    return Column(
+    final controls = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _buildBindSelector(),
         const SizedBox(height: 12),
         PlaybackProxyModeControl(
           value: _proxyMode,
+          source: _playbackPolicySource,
           onChanged: (value) => setState(() => _proxyMode = value),
         ),
         const SizedBox(height: 12),
@@ -142,12 +147,16 @@ class _QnapAddMediaFormState extends State<QnapAddMediaForm> {
         ),
         const SizedBox(height: 10),
         _buildLocationBar(),
-        const SizedBox(height: 8),
+      ],
+    );
+    final results = Column(
+      children: [
         Expanded(child: _loading ? const AppLoadingIndicator() : _buildList()),
         const SizedBox(height: 8),
         _buildPagination(),
       ],
     );
+    return ProviderWorkspace(controls: controls, results: results);
   }
 
   Widget _buildBindSelector() {
@@ -207,7 +216,8 @@ class _QnapAddMediaFormState extends State<QnapAddMediaForm> {
     final itemsByKey = {for (final item in _items) item.path: item};
     return DiscoveryBrowser(
       selectionController: _selection,
-      selectionScope: _bind?.id,
+      selectionScope: '${_bind?.id}:$_path:${_searchController.text}',
+      onSelectionChanged: () => setState(() {}),
       items: [
         for (final item in _items)
           DiscoveryBrowserEntry(
@@ -315,7 +325,11 @@ class _QnapAddMediaFormState extends State<QnapAddMediaForm> {
   Future<void> _load() async {
     final bind = _bind;
     if (bind == null || _loading) return;
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _selection.clear();
+      _listSource = null;
+    });
     try {
       final loader = widget.fileLoader ?? _defaultLoader;
       final result = await loader(

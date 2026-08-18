@@ -99,11 +99,13 @@ final class SyncTvMediaLibraryGateway implements MediaLibraryGateway {
     String playlistId, {
     required String name,
     String? description,
+    source.PlaylistSourceConfig? sourceConfig,
   }) => SyncTvService.updatePlaylist(
     roomId,
     playlistId,
     name: name,
     description: description,
+    sourceConfig: sourceConfig,
   );
   @override
   Future<RoomPlaylistItem> updatePlaylistCover(
@@ -140,11 +142,13 @@ final class SyncTvMediaLibraryGateway implements MediaLibraryGateway {
     String mediaId, {
     required String name,
     String? description,
+    source_enum.PlaybackProxyMode? playbackProxyMode,
   }) => SyncTvService.editMedia(
     roomId,
     mediaId,
     name: name,
     description: description,
+    playbackProxyMode: playbackProxyMode,
   );
   @override
   Future<RoomMediaItem> updateVideoCover(

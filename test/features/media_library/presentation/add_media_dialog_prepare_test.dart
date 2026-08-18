@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 
+import 'package:fixnum/fixnum.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +13,8 @@ import 'package:synctv_app/features/media_library/presentation/add_media_dialog.
 import 'package:synctv_app/features/providers/application/provider_gateway.dart';
 import 'package:synctv_app/l10n/l10n.dart';
 import 'package:synctv_app/src/generated/proto/common.pbenum.dart' as common;
+import 'package:synctv_app/src/generated/proto/client.pbenum.dart'
+    as client_enum;
 import 'package:synctv_app/src/generated/proto/providers/common.pb.dart'
     as provider_common;
 import 'package:synctv_app/src/generated/proto/source_config.pb.dart'
@@ -33,7 +36,6 @@ void main() {
       find.byType(EditableText).first,
       'media.example.test/one.mp4\nhttps://media.example.test/two.m3u8',
     );
-    await _tapVisible(tester, find.text('Proxy only'));
     await _tapVisible(tester, find.byKey(const Key('direct-url-preview')));
     await tester.pumpAndSettle();
 
@@ -48,11 +50,12 @@ void main() {
           .map((intent) => intent.proxyMode)
           .every(
             (mode) =>
-                mode == source_enum.PlaybackProxyMode.PLAYBACK_PROXY_MODE_ONLY,
+                mode == source_enum.PlaybackProxyMode.PLAYBACK_PROXY_MODE_AUTO,
           ),
       isTrue,
     );
     expect(find.text('Selected 2'), findsOneWidget);
+    await _selectProxyMode(tester, 'Proxy only');
 
     await tester.enterText(find.byType(EditableText).at(1), 'Custom name');
     await tester.pump();
@@ -112,8 +115,51 @@ void main() {
     await tester.pump();
 
     expect(gateway.publishMediaIds, ['media_server_42']);
+    expect(gateway.publishKeyTypes, [
+      client_enum.PublishKeyType.PUBLISH_KEY_TYPE_SINGLE_USE,
+    ]);
+    expect(gateway.publishExpiresAt.single, isNotNull);
     expect(gateway.streamInfoMediaIds, ['media_server_42']);
     expect(gateway.addedNames, ['Studio camera']);
+  });
+
+  testWidgets('RTMP permanent key omits expiration', (tester) async {
+    final gateway = _PrepareGateway();
+    await _pumpDialog(tester, gateway);
+    await _selectSource(tester, 1);
+
+    await _tapVisible(tester, find.byKey(const Key('rtmp-publish-key-type')));
+    await tester.pumpAndSettle();
+    await _tapVisible(tester, find.text('Never expires').last);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('rtmp-publish-key-expiration')), findsNothing);
+    await _tapVisible(tester, find.byKey(const Key('rtmp-preview')));
+    await tester.pumpAndSettle();
+    await _tapVisible(tester, find.byKey(const Key('rtmp-submit')));
+    await tester.pump();
+
+    expect(gateway.publishKeyTypes, [
+      client_enum.PublishKeyType.PUBLISH_KEY_TYPE_PERMANENT,
+    ]);
+    expect(gateway.publishExpiresAt, [null]);
+  });
+
+  testWidgets('RTMP expired key does not create media', (tester) async {
+    final gateway = _PrepareGateway();
+    var now = DateTime(2026, 1, 1, 12);
+    await _pumpDialog(tester, gateway, now: () => now);
+    await _selectSource(tester, 1);
+    await _tapVisible(tester, find.byKey(const Key('rtmp-preview')));
+    await tester.pumpAndSettle();
+
+    now = now.add(const Duration(hours: 2));
+    await _tapVisible(tester, find.byKey(const Key('rtmp-submit')));
+    await tester.pump();
+
+    expect(gateway.addedSources, isEmpty);
+    expect(gateway.publishMediaIds, isEmpty);
+    await tester.pump(const Duration(seconds: 4));
   });
 
   testWidgets('live proxy protocol changes invalidate prepared source', (
@@ -149,9 +195,10 @@ void main() {
   testWidgets('Bilibili parse playlist lists items before multi-select add', (
     tester,
   ) async {
-    final gateway = _PrepareGateway();
+    final gateway = _BilibiliPolicyGateway();
     await _pumpDialog(tester, gateway);
     await _selectSource(tester, 3);
+    expect(find.byKey(const Key('bilibili-playback-proxy-mode')), findsNothing);
 
     await tester.enterText(
       find.byType(EditableText).first,
@@ -163,6 +210,10 @@ void main() {
     expect(gateway.bilibiliParseResources, [
       'https://www.bilibili.com/video/BV1typed',
     ]);
+    expect(
+      find.byKey(const Key('bilibili-playback-proxy-mode')),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('bilibili-candidate-preview')), findsOneWidget);
     expect(find.byKey(const Key('discovery-add-selected')), findsNothing);
 
@@ -175,16 +226,41 @@ void main() {
       gateway.bilibiliListIntents.single.mode,
       BilibiliPlaylistListMode.videoParts,
     );
+    expect(
+      gateway.policySources.any(
+        (source) => source.hasPlaylist() && source.playlist.hasBilibili(),
+      ),
+      isTrue,
+    );
     expect(find.text('Selected 0'), findsOneWidget);
 
     await _tapVisible(tester, find.byKey(const Key('discovery-select-all')));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.text('Selected 2'), findsOneWidget);
+    expect(
+      gateway.policySources.any(
+        (source) => source.hasMedia() && source.media.hasBilibili(),
+      ),
+      isTrue,
+    );
+    final playbackModeControl = find.byKey(
+      const Key('bilibili-playback-proxy-mode'),
+      skipOffstage: false,
+    );
+    await tester.ensureVisible(playbackModeControl);
+    await tester.pumpAndSettle();
+    expect(playbackModeControl, findsOneWidget);
+    expect(find.text('Automatic'), findsOneWidget);
+    await _selectProxyMode(tester, 'Proxy only');
     await _tapVisible(tester, find.byKey(const Key('discovery-add-selected')));
     await tester.pump();
 
     expect(gateway.addedSources, hasLength(2));
     expect(gateway.addedSources.every((source) => source.hasMedia()), isTrue);
+    expect(
+      gateway.addedSources.map((source) => source.media.bilibili.proxyMode),
+      everyElement(source_enum.PlaybackProxyMode.PLAYBACK_PROXY_MODE_ONLY),
+    );
     await tester.pump(const Duration(seconds: 4));
   });
 
@@ -220,7 +296,11 @@ void main() {
   });
 }
 
-Future<void> _pumpDialog(WidgetTester tester, ProviderGateway gateway) async {
+Future<void> _pumpDialog(
+  WidgetTester tester,
+  ProviderGateway gateway, {
+  DateTime Function()? now,
+}) async {
   tester.view.physicalSize = const ui.Size(430, 800);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
@@ -233,7 +313,12 @@ Future<void> _pumpDialog(WidgetTester tester, ProviderGateway gateway) async {
         context,
         DependencyScope<ProviderGateway>(value: gateway, child: child!),
       ),
-      home: const Scaffold(body: AddMediaDialog(roomId: 'room_prepare_test')),
+      home: Scaffold(
+        body: AddMediaDialog(
+          roomId: 'room_prepare_test',
+          now: now ?? DateTime.now,
+        ),
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -257,6 +342,21 @@ Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
   await tester.tap(finder);
 }
 
+Future<void> _selectProxyMode(WidgetTester tester, String label) async {
+  final dropdown = find.byKey(
+    const Key('playback-proxy-mode-dropdown'),
+    skipOffstage: false,
+  );
+  if (dropdown.evaluate().isNotEmpty) {
+    await _tapVisible(tester, dropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(label).last);
+  } else {
+    await _tapVisible(tester, find.text(label));
+  }
+  await tester.pumpAndSettle();
+}
+
 class _PrepareGateway implements ProviderGateway {
   final List<provider_common.PrepareDirectUrlRequest> directIntents = [];
   final List<provider_common.PrepareLiveProxyRequest> liveIntents = [];
@@ -264,9 +364,25 @@ class _PrepareGateway implements ProviderGateway {
   final List<provider_common.DiscoveredSource> addedSources = [];
   final List<String> addedNames = [];
   final List<String> publishMediaIds = [];
+  final List<client_enum.PublishKeyType> publishKeyTypes = [];
+  final List<int?> publishExpiresAt = [];
   final List<String> streamInfoMediaIds = [];
   final List<String> bilibiliParseResources = [];
   final List<BilibiliPlaylistListIntent> bilibiliListIntents = [];
+
+  @override
+  Future<provider_common.PlaybackProxyPolicy> resolvePlaybackProxyPolicy(
+    provider_common.DiscoveredSource source,
+  ) async => provider_common.PlaybackProxyPolicy(
+    supportedModes: [
+      source_enum.PlaybackProxyMode.PLAYBACK_PROXY_MODE_AUTO,
+      source_enum.PlaybackProxyMode.PLAYBACK_PROXY_MODE_PREFER,
+      source_enum.PlaybackProxyMode.PLAYBACK_PROXY_MODE_ONLY,
+      source_enum.PlaybackProxyMode.PLAYBACK_PROXY_MODE_DIRECT_PREFER,
+      source_enum.PlaybackProxyMode.PLAYBACK_PROXY_MODE_DIRECT_ONLY,
+    ],
+    currentMode: source_enum.PlaybackProxyMode.PLAYBACK_PROXY_MODE_AUTO,
+  );
 
   @override
   Future<provider_common.PreparedMediaSource> prepareDirectUrl(
@@ -342,14 +458,19 @@ class _PrepareGateway implements ProviderGateway {
   @override
   Future<RtmpPublishKeyInfo> createRtmpPublishKeyInfo(
     String roomId,
-    String mediaId,
-  ) async {
+    String mediaId, {
+    required client_enum.PublishKeyType keyType,
+    int? expiresAt,
+  }) async {
     publishMediaIds.add(mediaId);
+    publishKeyTypes.add(keyType);
+    publishExpiresAt.add(expiresAt);
     return const RtmpPublishKeyInfo(
       publishKey: 'publish-key',
       rtmpUrl: 'rtmp://publish.example.test/live',
       streamKey: 'stream-key',
       expiresAt: 1900000000,
+      keyType: client_enum.PublishKeyType.PUBLISH_KEY_TYPE_SINGLE_USE,
     );
   }
 
@@ -410,7 +531,7 @@ class _PrepareGateway implements ProviderGateway {
           description: 'First part',
           cover: '',
           isContainer: false,
-          source: _directMediaSource('https://media.example.test/part-1.mp4'),
+          source: _bilibiliMediaSource('BV1typed', 1),
           browse: null,
         ),
         BilibiliPlaylistListItemInfo(
@@ -419,7 +540,7 @@ class _PrepareGateway implements ProviderGateway {
           description: 'Second part',
           cover: '',
           isContainer: false,
-          source: _directMediaSource('https://media.example.test/part-2.mp4'),
+          source: _bilibiliMediaSource('BV1typed', 2),
           browse: null,
         ),
       ],
@@ -493,11 +614,32 @@ class _PrepareGateway implements ProviderGateway {
       throw UnimplementedError('${invocation.memberName}');
 }
 
-provider_common.DiscoveredSource _directMediaSource(String url) =>
+class _BilibiliPolicyGateway extends _PrepareGateway {
+  final List<provider_common.DiscoveredSource> policySources = [];
+
+  @override
+  Future<provider_common.PlaybackProxyPolicy> resolvePlaybackProxyPolicy(
+    provider_common.DiscoveredSource source,
+  ) async {
+    policySources.add(source.deepCopy());
+    return provider_common.PlaybackProxyPolicy(
+      supportedModes: [
+        source_enum.PlaybackProxyMode.PLAYBACK_PROXY_MODE_AUTO,
+        source_enum.PlaybackProxyMode.PLAYBACK_PROXY_MODE_ONLY,
+      ],
+      currentMode: source_enum.PlaybackProxyMode.PLAYBACK_PROXY_MODE_AUTO,
+    );
+  }
+}
+
+provider_common.DiscoveredSource _bilibiliMediaSource(String bvid, int cid) =>
     provider_common.DiscoveredSource(
       media: source_config.MediaSourceConfig(
-        directUrl: source_config.DirectUrlMediaSourceConfig(
-          medias: [source_config.DirectUrlMediaResourceConfig(url: url)],
+        bilibili: source_config.BilibiliMediaSourceConfig(
+          video: source_config.BilibiliVideoSourceConfig(
+            bvid: bvid,
+            cid: Int64(cid),
+          ),
         ),
       ),
     );

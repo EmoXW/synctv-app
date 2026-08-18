@@ -9,6 +9,8 @@ import 'package:synctv_app/l10n/l10n.dart';
 import 'package:synctv_app/features/providers/presentation/provider_gateway_scope.dart';
 import 'package:synctv_app/src/generated/proto/source_config.pbenum.dart'
     as source_enum;
+import 'package:synctv_app/src/generated/proto/client.pbenum.dart'
+    as client_enum;
 import 'package:synctv_app/theme/app_responsive.dart';
 import 'package:synctv_app/core/presentation/notifications/app_notifications.dart';
 import 'package:synctv_app/core/presentation/dialogs/app_dialogs.dart';
@@ -27,6 +29,7 @@ import 'package:synctv_app/features/media_library/presentation/add_media/huya_ad
 import 'package:synctv_app/features/media_library/presentation/add_media/nextcloud_add_media_form.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media/playback_proxy_mode_control.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media/provider_add_target.dart';
+import 'package:synctv_app/features/media_library/presentation/add_media/provider_workspace.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media/provider_account_action.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media/qnap_add_media_form.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media/seafile_add_media_form.dart';
@@ -43,12 +46,16 @@ class AddMediaDialog extends StatefulWidget {
   final String roomId;
   final String? parentId;
   final ProviderDistributionPolicy distributionPolicy;
+  final VoidCallback? onCompactClose;
+  final DateTime Function() now;
 
   const AddMediaDialog({
     super.key,
     required this.roomId,
     this.parentId,
     this.distributionPolicy = ProviderDistributionPolicy.current,
+    this.onCompactClose,
+    this.now = DateTime.now,
   });
 
   static Future<void> show(
@@ -61,24 +68,36 @@ class AddMediaDialog extends StatefulWidget {
       context: context,
       barrierDismissible: false,
       builder: (context) {
+        final compact = MediaQuery.sizeOf(context).width < 720;
         return AppDialogFrame(
-          maxWidth: 920,
+          maxWidth: 1280,
+          allowWide: true,
           borderRadius: const BorderRadius.all(Radius.circular(16)),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _AddMediaDialogHeader(
-                onClose: () => dialogKey.currentState?._requestClose(),
-              ),
-              Flexible(
-                child: AddMediaDialog(
+          child: compact
+              ? AddMediaDialog(
                   key: dialogKey,
                   roomId: roomId,
                   parentId: parentId,
+                  onCompactClose: () => dialogKey.currentState?._requestClose(),
+                )
+              : SizedBox(
+                  width: double.infinity,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _AddMediaDialogHeader(
+                        onClose: () => dialogKey.currentState?._requestClose(),
+                      ),
+                      Flexible(
+                        child: AddMediaDialog(
+                          key: dialogKey,
+                          roomId: roomId,
+                          parentId: parentId,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
         );
       },
     );
@@ -187,6 +206,8 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
   final _alistPasswordController = TextEditingController();
   final _embySearchController = TextEditingController();
   final _cloudreveSearchController = TextEditingController();
+  final _sourceSearchController = TextEditingController();
+  final _directSelection = DiscoverySelectionController();
   final _bilibiliSelection = DiscoverySelectionController();
   final _alistSelection = DiscoverySelectionController();
   final _embySelection = DiscoverySelectionController();
@@ -210,6 +231,9 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
   source_enum.RtmpStreamMode _rtmpPublishMode =
       source_enum.RtmpStreamMode.RTMP_STREAM_MODE_DEFAULT;
   provider_common.PreparedMediaSource? _rtmpPreview;
+  client_enum.PublishKeyType _rtmpPublishKeyType =
+      client_enum.PublishKeyType.PUBLISH_KEY_TYPE_SINGLE_USE;
+  late DateTime _rtmpPublishExpiresAt;
   _LivePullProtocol _liveProxyProtocol = _LivePullProtocol.rtmp;
   source_enum.RtmpStreamMode _liveProxyRtmpMode =
       source_enum.RtmpStreamMode.RTMP_STREAM_MODE_DEFAULT;
@@ -307,6 +331,7 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
   @override
   void initState() {
     super.initState();
+    _rtmpPublishExpiresAt = widget.now().add(const Duration(hours: 1));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _selectedIndex == 0) {
         _urlFocusNode.requestFocus();
@@ -514,17 +539,15 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
     _alistPasswordController.dispose();
     _embySearchController.dispose();
     _cloudreveSearchController.dispose();
+    _sourceSearchController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final compact = AppBreakpoints.widthOf(context) < 720;
     final availableHeight = AppMetrics.dialogMaxHeight(context, null);
-    final contentHeight = compact
-        ? (availableHeight - 64).clamp(500.0, 660.0)
-        : (availableHeight - 64).clamp(460.0, 660.0);
+    final contentHeight = availableHeight.clamp(420.0, 820.0);
 
     return PopScope(
       canPop: !_hasUnsavedDraft,
@@ -537,26 +560,38 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
       },
       child: SizedBox(
         height: contentHeight,
-        child: compact
-            ? Column(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final narrow = constraints.maxWidth < 720;
+            if (narrow) {
+              return Column(
                 children: [
                   _buildCompactSourceRail(theme),
                   Expanded(child: _buildSourcePanel(theme, compact: true)),
                 ],
-              )
-            : Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(width: 236, child: _buildSourceRail(theme)),
-                  AppVerticalDivider(
-                    width: 1,
-                    color: theme.colorScheme.outlineVariant.withValues(
-                      alpha: 0.7,
-                    ),
+              );
+            }
+            // This threshold only depends on the dialog width. The source rail
+            // therefore keeps a stable width while its content changes.
+            final sourceDetails = constraints.maxWidth >= 1220;
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  width: sourceDetails ? 236 : 68,
+                  child: _buildSourceRail(theme, iconOnly: !sourceDetails),
+                ),
+                AppVerticalDivider(
+                  width: 1,
+                  color: theme.colorScheme.outlineVariant.withValues(
+                    alpha: 0.7,
                   ),
-                  Expanded(child: _buildSourcePanel(theme)),
-                ],
-              ),
+                ),
+                Expanded(child: _buildSourcePanel(theme)),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -779,6 +814,18 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
           })
           .toList(growable: false);
 
+  List<_MediaSourceSpec> get _filteredSourceSpecs {
+    final keyword = _sourceSearchController.text.trim().toLowerCase();
+    if (keyword.isEmpty) return _sourceSpecs;
+    return _sourceSpecs
+        .where(
+          (spec) =>
+              spec.title.toLowerCase().contains(keyword) ||
+              spec.subtitle.toLowerCase().contains(keyword),
+        )
+        .toList(growable: false);
+  }
+
   void _selectSource(int index) {
     final providerType = _providerTypeForSourceIndex(index);
     if (providerType != null &&
@@ -804,42 +851,57 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
     }
   }
 
-  Widget _buildSourceRail(ThemeData theme) {
+  Widget _buildSourceRail(ThemeData theme, {required bool iconOnly}) {
     return AppPanelSurface(
       color: theme.colorScheme.surfaceContainerLow,
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.all(iconOnly ? 8 : 12),
       borderRadius: BorderRadius.zero,
       clipBehavior: Clip.none,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            context.l10n.source,
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w800,
+          if (!iconOnly) ...[
+            Text(
+              context.l10n.source,
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w800,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
+            const SizedBox(height: 8),
+            AppSearchField(
+              controller: _sourceSearchController,
+              hintText: context.l10n.search,
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (_) {},
+            ),
+            const SizedBox(height: 8),
+          ],
           Expanded(
             child: AppListView.separated(
               padding: EdgeInsets.zero,
-              itemCount: _sourceSpecs.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 6),
-              itemBuilder: (context, index) =>
-                  _buildSourceTile(theme, _sourceSpecs[index]),
-            ),
-          ),
-          const SizedBox(height: 8),
-          if (_checkingVendors)
-            const AppLinearProgress(minHeight: 2)
-          else
-            Text(
-              context.l10n.connectedMediaSources(_boundVendors.length),
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+              itemCount:
+                  (iconOnly ? _sourceSpecs : _filteredSourceSpecs).length,
+              separatorBuilder: (_, _) => SizedBox(height: iconOnly ? 8 : 6),
+              itemBuilder: (context, index) => _buildSourceTile(
+                theme,
+                (iconOnly ? _sourceSpecs : _filteredSourceSpecs)[index],
+                iconOnly: iconOnly,
               ),
             ),
+          ),
+          if (!iconOnly) ...[
+            const SizedBox(height: 8),
+            if (_checkingVendors)
+              const AppLinearProgress(minHeight: 2)
+            else
+              Text(
+                context.l10n.connectedMediaSources(_boundVendors.length),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+          ],
         ],
       ),
     );
@@ -850,7 +912,7 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
       (spec) => spec.index == _selectedIndex,
     );
     return AppPanelSurface(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       color: theme.colorScheme.surfaceContainerLow,
       borderRadius: BorderRadius.zero,
       border: Border(
@@ -859,53 +921,71 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
         ),
       ),
       clipBehavior: Clip.none,
-      child: DropdownButtonFormField<int>(
-        key: ValueKey('add-media-source-selector-$_selectedIndex'),
-        initialValue: _selectedIndex,
-        isExpanded: true,
-        decoration: InputDecoration(
-          labelText: context.l10n.source,
-          prefixIcon: Icon(selectedSpec.icon, color: selectedSpec.color),
-        ),
-        menuMaxHeight: 420,
-        selectedItemBuilder: (context) => [
-          for (final spec in _sourceSpecs)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                spec.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+      child: Row(
+        children: [
+          Expanded(
+            child: DropdownButtonFormField<int>(
+              key: ValueKey('add-media-source-selector-$_selectedIndex'),
+              initialValue: _selectedIndex,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: context.l10n.source,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                prefixIcon: Icon(selectedSpec.icon, color: selectedSpec.color),
               ),
-            ),
-        ],
-        items: [
-          for (final spec in _sourceSpecs)
-            DropdownMenuItem<int>(
-              value: spec.index,
-              child: Row(
-                children: [
-                  Icon(
-                    spec.icon,
-                    key: ValueKey('add-media-provider-icon-${spec.index}'),
-                    size: 18,
-                    color: spec.color,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
+              menuMaxHeight: 420,
+              selectedItemBuilder: (context) => [
+                for (final spec in _sourceSpecs)
+                  Align(
+                    alignment: Alignment.centerLeft,
                     child: Text(
                       spec.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                ],
-              ),
+              ],
+              items: [
+                for (final spec in _sourceSpecs)
+                  DropdownMenuItem<int>(
+                    value: spec.index,
+                    child: Row(
+                      children: [
+                        Icon(
+                          spec.icon,
+                          key: ValueKey(
+                            'add-media-provider-icon-${spec.index}',
+                          ),
+                          size: 18,
+                          color: spec.color,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            spec.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+              onChanged: (index) {
+                if (index != null) _selectSource(index);
+              },
             ),
+          ),
+          if (widget.onCompactClose case final onClose?) ...[
+            const SizedBox(width: 8),
+            AppIconButton(
+              onPressed: onClose,
+              icon: Icons.close_rounded,
+              tooltip: context.l10n.close,
+            ),
+          ],
         ],
-        onChanged: (index) {
-          if (index != null) _selectSource(index);
-        },
       ),
     );
   }
@@ -913,10 +993,11 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
   Widget _buildSourceTile(
     ThemeData theme,
     _MediaSourceSpec spec, {
-    bool compact = false,
+    bool iconOnly = false,
   }) {
     final selected = _selectedIndex == spec.index;
-    return AppInkSurface(
+    final surface = AppInkSurface(
+      key: ValueKey('add-media-source-tile-${spec.index}'),
       color: selected
           ? spec.color.withValues(alpha: 0.13)
           : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.38),
@@ -924,8 +1005,8 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
       onTap: () => _selectSource(spec.index),
       child: AppPanelSurface(
         padding: EdgeInsets.symmetric(
-          horizontal: compact ? 10 : 11,
-          vertical: compact ? 8 : 10,
+          horizontal: iconOnly ? 8 : 11,
+          vertical: iconOnly ? 8 : 10,
         ),
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(8),
@@ -935,45 +1016,61 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
               : theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
         ),
         clipBehavior: Clip.none,
-        child: Row(
-          children: [
-            AppIconBadge(
-              icon: spec.icon,
-              color: spec.color,
-              size: compact ? 30 : 32,
-              iconSize: 20,
-              backgroundAlpha: selected ? 0.18 : 0.12,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    spec.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
+        child: iconOnly
+            ? Semantics(
+                label: '${spec.title}: ${spec.subtitle}',
+                child: Center(
+                  child: AppIconBadge(
+                    icon: spec.icon,
+                    color: spec.color,
+                    size: 32,
+                    iconSize: 20,
+                    backgroundAlpha: selected ? 0.18 : 0.12,
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    spec.subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                ),
+              )
+            : Row(
+                children: [
+                  AppIconBadge(
+                    icon: spec.icon,
+                    color: spec.color,
+                    size: 32,
+                    iconSize: 20,
+                    backgroundAlpha: selected ? 0.18 : 0.12,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          spec.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          spec.subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
-            ),
-          ],
-        ),
       ),
     );
+    return iconOnly
+        ? Tooltip(message: '${spec.title}\n${spec.subtitle}', child: surface)
+        : surface;
   }
 
   Widget _buildSourcePanel(ThemeData theme, {bool compact = false}) {
@@ -984,7 +1081,7 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         AppPanelSurface(
-          height: 52,
+          height: compact ? 48 : 52,
           padding: EdgeInsets.symmetric(horizontal: compact ? 16 : 22),
           color: Colors.transparent,
           borderRadius: BorderRadius.zero,
@@ -1014,22 +1111,44 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
                   ),
                 ),
               ),
-              if (_providerBindingType(_selectedIndex) != null)
-                AppActionButton(
-                  onPressed: () => _openProviderBinding(
-                    _providerBindingType(_selectedIndex)!,
+              if (_selectedSourceSelectionCount > 0) ...[
+                const SizedBox(width: 8),
+                AppChip(
+                  avatar: const Icon(Icons.check_circle_outline_rounded),
+                  label: Text(
+                    compact
+                        ? '$_selectedSourceSelectionCount'
+                        : context.l10n.selectedCount(
+                            _selectedSourceSelectionCount,
+                          ),
                   ),
-                  icon: Icons.link_rounded,
-                  label: context.l10n.manageConnections,
-                  style: AppActionButtonStyle.text,
+                  style: AppChipStyle.outlined,
                 ),
+              ],
+              if (_providerBindingType(_selectedIndex) != null)
+                compact
+                    ? AppIconButton(
+                        onPressed: () => _openProviderBinding(
+                          _providerBindingType(_selectedIndex)!,
+                        ),
+                        icon: Icons.link_rounded,
+                        tooltip: context.l10n.manageConnections,
+                      )
+                    : AppActionButton(
+                        onPressed: () => _openProviderBinding(
+                          _providerBindingType(_selectedIndex)!,
+                        ),
+                        icon: Icons.link_rounded,
+                        label: context.l10n.manageConnections,
+                        style: AppActionButtonStyle.text,
+                      ),
             ],
           ),
         ),
         Expanded(
           child: Padding(
             padding: compact
-                ? const EdgeInsets.all(10)
+                ? const EdgeInsets.all(8)
                 : const EdgeInsets.fromLTRB(18, 10, 18, 10),
             child: _buildContent(theme),
           ),
@@ -1037,6 +1156,14 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
       ],
     );
   }
+
+  int get _selectedSourceSelectionCount => switch (_selectedIndex) {
+    3 => _bilibiliSelection.length,
+    4 => _alistSelection.length,
+    5 => _embySelection.length,
+    6 => _cloudreveSelection.length,
+    _ => 0,
+  };
 
   Widget _buildContent(ThemeData theme) {
     switch (_selectedIndex) {
@@ -1180,7 +1307,10 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
           smartDashesType: SmartDashesType.disabled,
           smartQuotesType: SmartQuotesType.disabled,
           enabled: !_isLoading,
-          onChanged: (_) => setState(() => _directPreview = const []),
+          onChanged: (_) => setState(() {
+            _directPreview = const [];
+            _directSelection.clear();
+          }),
         ),
         const SizedBox(height: 10),
         LayoutBuilder(
@@ -1222,10 +1352,8 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
         PlaybackProxyModeControl(
           value: _directProxyMode,
           enabled: !_isLoading,
-          onChanged: (value) => setState(() {
-            _directProxyMode = value;
-            _directPreview = const [];
-          }),
+          source: _directPlaybackPolicySource,
+          onChanged: (value) => setState(() => _directProxyMode = value),
         ),
         if (_directPreview.isNotEmpty) ...[
           const SizedBox(height: 16),
@@ -1304,6 +1432,7 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
                 setState(() {
                   _directPlaybackKind = selection.single;
                   _directPreview = const [];
+                  _directSelection.clear();
                 });
               },
       ),
@@ -1534,6 +1663,45 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
             }
           },
         ),
+        const SizedBox(height: 18),
+        AppSelect<client_enum.PublishKeyType>(
+          key: const Key('rtmp-publish-key-type'),
+          value: _rtmpPublishKeyType,
+          label: context.l10n.publishKeyType,
+          prefixIcon: Icons.key_rounded,
+          options: {
+            context.l10n.singleUsePublishKey:
+                client_enum.PublishKeyType.PUBLISH_KEY_TYPE_SINGLE_USE,
+            context.l10n.expiringPublishKey:
+                client_enum.PublishKeyType.PUBLISH_KEY_TYPE_EXPIRING,
+            context.l10n.permanentPublishKey:
+                client_enum.PublishKeyType.PUBLISH_KEY_TYPE_PERMANENT,
+          },
+          enabled: !_isLoading,
+          onChanged: (value) {
+            if (value != null) setState(() => _rtmpPublishKeyType = value);
+          },
+        ),
+        const SizedBox(height: 12),
+        if (_rtmpPublishKeyType ==
+            client_enum.PublishKeyType.PUBLISH_KEY_TYPE_PERMANENT)
+          _buildInlineNotice(
+            theme,
+            icon: Icons.warning_amber_rounded,
+            title: context.l10n.permanentPublishKey,
+            subtitle: context.l10n.permanentPublishKeyDescription,
+            color: Colors.orange.shade700,
+          )
+        else
+          OutlinedButton.icon(
+            key: const Key('rtmp-publish-key-expiration'),
+            onPressed: _isLoading ? null : _selectRtmpPublishExpiration,
+            icon: const Icon(Icons.schedule_rounded),
+            label: Text(
+              '${context.l10n.expirationTime}: '
+              '${_formatDateTime(_rtmpPublishExpiresAt)}',
+            ),
+          ),
         const SizedBox(height: 18),
         if (_publicSettings != null) ...[
           _buildRtmpPublicSettingsPanel(theme, _publicSettings!),
@@ -1788,45 +1956,221 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
   }
 
   Widget _buildBilibiliContent(ThemeData theme) {
+    final targetControl = _buildBilibiliTargetControl();
+    return switch (_bilibiliTarget) {
+      ProviderAddTarget.parse => _buildBilibiliMediaContent(
+        theme,
+        leadingControls: targetControl,
+      ),
+      ProviderAddTarget.media ||
+      ProviderAddTarget.playlist => BilibiliPlaylistForm(
+        key: ValueKey(_bilibiliTarget),
+        roomId: widget.roomId,
+        parentId: widget.parentId ?? '',
+        binds: _bilibiliBinds,
+        target: _bilibiliTarget,
+        proxyMode: _bilibiliProxyMode,
+        onProxyModeChanged: (value) =>
+            setState(() => _bilibiliProxyMode = value),
+        onDraftChanged: (value) => _bilibiliPlaylistHasDraft = value,
+        leadingControls: targetControl,
+      ),
+    };
+  }
+
+  Widget _buildBilibiliTargetControl() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      ProviderAddTargetSelector(
+        value: _bilibiliTarget,
+        targets: const [
+          ProviderAddTarget.parse,
+          ProviderAddTarget.media,
+          ProviderAddTarget.playlist,
+        ],
+        enabled: !_isLoading,
+        onChanged: (value) => setState(() => _bilibiliTarget = value),
+      ),
+      const SizedBox(height: 10),
+    ],
+  );
+
+  Widget _buildBilibiliResolvedPreview({
+    required ThemeData theme,
+    required List<BilibiliParseCandidateInfo> candidates,
+    required BilibiliParseCandidateInfo? selected,
+    required String coverImage,
+    required String title,
+    required List<String> details,
+    required List<BilibiliPlaylistListItemInfo> previewItems,
+    required int selectedIndex,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxHeight < 260;
+        final headerHeight = (constraints.maxHeight - 70)
+            .clamp(0.0, 250.0)
+            .toDouble();
+        if (compact) {
+          return AppSingleChildScrollView(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
+                _buildBilibiliResolvedHeader(
+                  theme: theme,
+                  candidates: candidates,
+                  selected: selected,
+                  coverImage: coverImage,
+                  title: title,
+                  details: details,
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 380,
+                  child: _buildBilibiliParseBrowser(
+                    selected: selected,
+                    previewItems: previewItems,
+                    selectedIndex: selectedIndex,
+                    title: title,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              height: headerHeight,
+              child: AppSingleChildScrollView(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: _buildBilibiliResolvedHeader(
+                  theme: theme,
+                  candidates: candidates,
+                  selected: selected,
+                  coverImage: coverImage,
+                  title: title,
+                  details: details,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: _buildBilibiliParseBrowser(
+                selected: selected,
+                previewItems: previewItems,
+                selectedIndex: selectedIndex,
+                title: title,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildBilibiliResolvedHeader({
+    required ThemeData theme,
+    required List<BilibiliParseCandidateInfo> candidates,
+    required BilibiliParseCandidateInfo? selected,
+    required String coverImage,
+    required String title,
+    required List<String> details,
+  }) {
     return Column(
       children: [
-        ProviderAddTargetSelector(
-          value: _bilibiliTarget,
-          targets: const [
-            ProviderAddTarget.parse,
-            ProviderAddTarget.media,
-            ProviderAddTarget.playlist,
-          ],
-          enabled: !_isLoading,
-          onChanged: (value) => setState(() => _bilibiliTarget = value),
-        ),
-        const SizedBox(height: 12),
-        PlaybackProxyModeControl(
-          value: _bilibiliProxyMode,
-          enabled: !_isLoading,
-          onChanged: (value) => setState(() => _bilibiliProxyMode = value),
-        ),
-        const SizedBox(height: 14),
-        Expanded(
-          child: switch (_bilibiliTarget) {
-            ProviderAddTarget.parse => _buildBilibiliMediaContent(theme),
-            ProviderAddTarget.media ||
-            ProviderAddTarget.playlist => BilibiliPlaylistForm(
-              key: ValueKey(_bilibiliTarget),
-              roomId: widget.roomId,
-              parentId: widget.parentId ?? '',
-              binds: _bilibiliBinds,
-              target: _bilibiliTarget,
-              proxyMode: _bilibiliProxyMode,
-              onDraftChanged: (value) => _bilibiliPlaylistHasDraft = value,
+        if (coverImage.isNotEmpty)
+          AspectRatio(
+            aspectRatio: 16 / 9,
+            child: AppImageThumbnail(
+              url: coverImage,
+              width: double.infinity,
+              height: double.infinity,
             ),
-          },
+          ),
+        const SizedBox(height: 12),
+        Text(
+          title,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          textAlign: TextAlign.center,
         ),
+        if (details.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            details.join(' · '),
+            style: TextStyle(fontSize: 13, color: theme.hintColor),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+          ),
+        ],
+        if (candidates.length > 1) ...[
+          const SizedBox(height: 12),
+          _buildBilibiliCandidateSelector(theme, candidates),
+        ],
+        if (selected?.isMedia == true) ...[
+          const SizedBox(height: 12),
+          _buildActionButton(
+            context.l10n.addToPlaylist,
+            _addBilibiliCandidate,
+            color: const Color(0xFFFB7299),
+            icon: Icons.playlist_add_rounded,
+          ),
+        ],
       ],
     );
   }
 
-  Widget _buildBilibiliMediaContent(ThemeData theme) {
+  Widget _buildBilibiliParseBrowser({
+    required BilibiliParseCandidateInfo? selected,
+    required List<BilibiliPlaylistListItemInfo> previewItems,
+    required int selectedIndex,
+    required String title,
+  }) {
+    return DiscoveryBrowser(
+      key: ValueKey('bilibili-parse-preview:${selected?.title ?? ''}'),
+      items: [
+        for (final item in previewItems)
+          DiscoveryBrowserEntry(
+            key: item.id,
+            title: item.title,
+            subtitle: item.description,
+            source: item.source,
+            isContainer: item.isContainer,
+            selectable: item.source.hasMedia() || item.source.hasPlaylist(),
+            leading: item.cover.isEmpty
+                ? Icon(
+                    item.isContainer
+                        ? Icons.video_library_outlined
+                        : Icons.play_circle_outline,
+                  )
+                : AppImageThumbnail(
+                    url: item.cover,
+                    width: 48,
+                    height: 48,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+          ),
+      ],
+      selectionController: _bilibiliSelection,
+      selectionScope: '$_bilibiliInstanceName:$selectedIndex:$title',
+      onSelectionChanged: () => setState(() {}),
+      loading: _isLoading,
+      hasMore: _bilibiliPreviewHasMore,
+      onLoadMore: () => _previewBilibiliCandidate(loadMore: true),
+      onAddSelected: _addSelectedBilibiliPreviewItems,
+      onAddCurrentList: _addBilibiliCandidate,
+      currentListLabel: context.l10n.addCurrentList,
+      emptyIcon: Icons.video_collection_outlined,
+      emptyTitle: context.l10n.noItems,
+    );
+  }
+
+  Widget _buildBilibiliMediaContent(
+    ThemeData theme, {
+    required Widget leadingControls,
+  }) {
     final candidates =
         _biliInfo?.candidates ?? const <BilibiliParseCandidateInfo>[];
     final selectedIndex = candidates.isEmpty
@@ -1848,8 +2192,9 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
     final previewItems =
         _biliPreview?.items ?? const <BilibiliPlaylistListItemInfo>[];
 
-    return Column(
+    final controls = Column(
       children: [
+        leadingControls,
         _buildProviderBindSelector<BilibiliBindInfo>(
           theme: theme,
           items: _bilibiliBinds,
@@ -1879,6 +2224,7 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
               _biliInfo = null;
               _biliSelectedIndex = 0;
               _biliPreview = null;
+              _bilibiliSelection.clear();
             });
           },
         ),
@@ -1895,9 +2241,19 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
                     _bilibiliShared = value;
                     _biliInfo = null;
                     _biliPreview = null;
+                    _bilibiliSelection.clear();
                   });
                 },
         ),
+        if (_bilibiliPlaybackPolicySource case final source?)
+          PlaybackProxyModeControl(
+            key: const Key('bilibili-playback-proxy-mode'),
+            value: _bilibiliProxyMode,
+            enabled: !_isLoading,
+            source: source,
+            onChanged: (value) => setState(() => _bilibiliProxyMode = value),
+          ),
+        const SizedBox(height: 12),
         Padding(
           padding: const EdgeInsets.fromLTRB(0, 0, 0, 14),
           child: Row(
@@ -1913,6 +2269,7 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
                   onChanged: (_) => setState(() {
                     _biliInfo = null;
                     _biliPreview = null;
+                    _bilibiliSelection.clear();
                   }),
                 ),
               ),
@@ -1930,152 +2287,109 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
             ],
           ),
         ),
-        Expanded(
-          child: _biliInfo == null
-              ? LayoutBuilder(
-                  builder: (context, constraints) {
-                    final compact = constraints.maxHeight < 180;
-                    return Center(
-                      child: AppEmptyState(
-                        icon: Icons.tv_rounded,
-                        iconColor: const Color(0xFFFB7299),
-                        iconSize: compact ? 32 : 58,
-                        padding: EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: compact ? 6 : 16,
-                        ),
-                        title: context.l10n.pasteBilibiliLink,
-                        subtitle: compact
-                            ? null
-                            : context.l10n.bilibiliSupportedLinks,
-                        maxWidth: 360,
-                      ),
-                    );
-                  },
-                )
-              : AppSingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(0, 0, 0, 18),
-                  child: Column(
-                    children: [
-                      if (coverImage.isNotEmpty)
-                        AspectRatio(
-                          aspectRatio: 16 / 9,
-                          child: AppImageThumbnail(
-                            url: coverImage,
-                            width: double.infinity,
-                            height: double.infinity,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.1),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                        ),
-                      const SizedBox(height: 16),
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      if (details.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          details.join(' · '),
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: theme.hintColor,
-                          ),
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                      if (candidates.length > 1) ...[
-                        const SizedBox(height: 16),
-                        _buildBilibiliCandidateSelector(theme, candidates),
-                      ],
-                      const SizedBox(height: 16),
-                      if (selected?.isMedia == true)
-                        _buildActionButton(
-                          context.l10n.addToPlaylist,
-                          _addBilibiliCandidate,
-                          color: const Color(0xFFFB7299),
-                          icon: Icons.playlist_add_rounded,
-                        )
-                      else if (selected?.isPlaylist == true)
-                        if (_biliPreview == null)
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: OutlinedButton.icon(
-                              key: const Key('bilibili-candidate-preview'),
-                              onPressed: _isLoading || selected?.browse == null
-                                  ? null
-                                  : _previewBilibiliCandidate,
-                              icon: const Icon(Icons.preview_outlined),
-                              label: Text(context.l10n.preview),
-                            ),
-                          ),
-                      if (_biliPreview != null) ...[
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          height: 380,
-                          child: DiscoveryBrowser(
-                            key: ValueKey(
-                              'bilibili-parse-preview:${selected?.title ?? ''}',
-                            ),
-                            items: [
-                              for (final item in previewItems)
-                                DiscoveryBrowserEntry(
-                                  key: item.id,
-                                  title: item.title,
-                                  subtitle: item.description,
-                                  source: item.source,
-                                  isContainer: item.isContainer,
-                                  selectable:
-                                      item.source.hasMedia() ||
-                                      item.source.hasPlaylist(),
-                                  leading: item.cover.isEmpty
-                                      ? Icon(
-                                          item.isContainer
-                                              ? Icons.video_library_outlined
-                                              : Icons.play_circle_outline,
-                                        )
-                                      : AppImageThumbnail(
-                                          url: item.cover,
-                                          width: 48,
-                                          height: 48,
-                                          borderRadius: BorderRadius.circular(
-                                            4,
-                                          ),
-                                        ),
-                                ),
-                            ],
-                            selectionController: _bilibiliSelection,
-                            selectionScope:
-                                '$_bilibiliInstanceName:$selectedIndex:$title',
-                            loading: _isLoading,
-                            hasMore: _bilibiliPreviewHasMore,
-                            onLoadMore: () =>
-                                _previewBilibiliCandidate(loadMore: true),
-                            onAddSelected: _addSelectedBilibiliPreviewItems,
-                            onAddCurrentList: _addBilibiliCandidate,
-                            currentListLabel: context.l10n.addCurrentList,
-                            emptyIcon: Icons.video_collection_outlined,
-                            emptyTitle: context.l10n.noItems,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-        ),
       ],
     );
+    final results = _biliInfo == null
+        ? LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxHeight < 180;
+              return Center(
+                child: AppEmptyState(
+                  icon: Icons.tv_rounded,
+                  iconColor: const Color(0xFFFB7299),
+                  iconSize: compact ? 32 : 58,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: compact ? 6 : 16,
+                  ),
+                  title: context.l10n.pasteBilibiliLink,
+                  subtitle: compact
+                      ? null
+                      : context.l10n.bilibiliSupportedLinks,
+                  maxWidth: 360,
+                ),
+              );
+            },
+          )
+        : _biliPreview != null
+        ? _buildBilibiliResolvedPreview(
+            theme: theme,
+            candidates: candidates,
+            selected: selected,
+            coverImage: coverImage,
+            title: title,
+            details: details,
+            previewItems: previewItems,
+            selectedIndex: selectedIndex,
+          )
+        : AppSingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(0, 0, 0, 18),
+            child: Column(
+              children: [
+                if (coverImage.isNotEmpty)
+                  AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: AppImageThumbnail(
+                      url: coverImage,
+                      width: double.infinity,
+                      height: double.infinity,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.1),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                if (details.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    details.join(' · '),
+                    style: TextStyle(fontSize: 13, color: theme.hintColor),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+                if (candidates.length > 1) ...[
+                  const SizedBox(height: 16),
+                  _buildBilibiliCandidateSelector(theme, candidates),
+                ],
+                const SizedBox(height: 16),
+                if (selected?.isMedia == true)
+                  _buildActionButton(
+                    context.l10n.addToPlaylist,
+                    _addBilibiliCandidate,
+                    color: const Color(0xFFFB7299),
+                    icon: Icons.playlist_add_rounded,
+                  )
+                else if (selected?.isPlaylist == true)
+                  if (_biliPreview == null)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: OutlinedButton.icon(
+                        key: const Key('bilibili-candidate-preview'),
+                        onPressed: _isLoading || selected?.browse == null
+                            ? null
+                            : _previewBilibiliCandidate,
+                        icon: const Icon(Icons.preview_outlined),
+                        label: Text(context.l10n.preview),
+                      ),
+                    ),
+              ],
+            ),
+          );
+    return ProviderWorkspace(controls: controls, results: results);
   }
 
   Widget _buildAlistContent(ThemeData theme) {
@@ -2086,7 +2400,7 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
       return _buildBindGuide('AList', theme);
     }
 
-    return Column(
+    final controls = Column(
       children: [
         _buildProviderBindSelector<AlistBindInfo>(
           theme: theme,
@@ -2118,59 +2432,74 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
         PlaybackProxyModeControl(
           value: _alistProxyMode,
           enabled: !_alistLoading && !_isLoading,
+          source: _alistPlaybackPolicySource,
           onChanged: (value) => setState(() => _alistProxyMode = value),
         ),
         const SizedBox(height: 12),
         _buildAlistSearchBar(theme),
         _buildAlistPasswordField(theme),
         _buildPathBar(theme, _alistPath, _goUpAlist),
-        Expanded(
-          child: _alistLoading && _alistFiles.isEmpty
-              ? const AppLoadingIndicator()
-              : DiscoveryBrowser(
-                  key: ValueKey(
-                    'alist:$_alistServerId:$_alistInstanceName:'
-                    '$_alistPath:$_alistKeyword:$_alistPassword',
-                  ),
-                  items: [
-                    for (final file in _alistFiles)
-                      DiscoveryBrowserEntry(
-                        key: file.path,
-                        title: file.name,
-                        subtitle: file.isDir ? '' : _formatSize(file.size),
-                        source: file.source,
-                        isContainer: file.isDir,
-                      ),
-                  ],
-                  selectionController: _alistSelection,
-                  selectionScope: _providerBindKey(
-                    _alistServerId,
-                    _alistInstanceName,
-                  ),
-                  loading: _alistLoading || _isLoading,
-                  hasMore: _alistHasMore,
-                  onLoadMore: () => _loadAlist(_alistPath, loadMore: true),
-                  onOpen: (entry) => _openAlistDirectory(entry.key),
-                  onAddSelected: _addDiscoveredEntries,
-                  onAddCurrentList: _alistListSource == null
-                      ? null
-                      : () => _addDiscoveredSource(
-                          _alistListSource!,
-                          _alistPath.split('/').last,
-                        ),
-                  emptyIcon: Icons.cloud_queue_rounded,
-                  emptyTitle: context.l10n.noFiles,
-                ),
-        ),
       ],
     );
+    final results = _alistLoading && _alistFiles.isEmpty
+        ? const AppLoadingIndicator()
+        : DiscoveryBrowser(
+            key: ValueKey(
+              'alist:$_alistServerId:$_alistInstanceName:'
+              '$_alistPath:$_alistKeyword:$_alistPassword',
+            ),
+            items: [
+              for (final file in _alistFiles)
+                DiscoveryBrowserEntry(
+                  key: file.path,
+                  title: file.name,
+                  subtitle: file.isDir ? '' : _formatSize(file.size),
+                  source: file.source,
+                  isContainer: file.isDir,
+                ),
+            ],
+            selectionController: _alistSelection,
+            selectionScope: _providerBindKey(
+              _alistServerId,
+              _alistInstanceName,
+            ),
+            onSelectionChanged: () => setState(() {}),
+            loading: _alistLoading || _isLoading,
+            hasMore: _alistHasMore,
+            onLoadMore: () => _loadAlist(_alistPath, loadMore: true),
+            onOpen: (entry) => _openAlistDirectory(entry.key),
+            onAddSelected: _addDiscoveredEntries,
+            onAddCurrentList: _alistListSource == null
+                ? null
+                : () => _addDiscoveredSource(
+                    _alistListSource!,
+                    _alistPath.split('/').last,
+                  ),
+            emptyIcon: Icons.cloud_queue_rounded,
+            emptyTitle: context.l10n.noFiles,
+          );
+    return ProviderWorkspace(controls: controls, results: results);
   }
 
   Widget _buildEmbyContent(ThemeData theme) {
     if (_checkingVendors) return const AppLoadingIndicator();
     if (_embyBinds.isEmpty) return _buildBindGuide('Emby', theme);
+    if (!_embyPlaylistMode) return _buildEmbyLibraryContent(theme);
+    return EmbyPlaylistForm(
+      roomId: widget.roomId,
+      parentId: widget.parentId ?? '',
+      binds: _embyBinds,
+      leadingControls: _buildEmbyModeControls(includeProxyMode: false),
+      proxyMode: _embyProxyMode,
+      onProxyModeChanged: (value) => setState(() => _embyProxyMode = value),
+      onDraftChanged: (value) => _embyPlaylistHasDraft = value,
+      onOpenBinding: () => _openProviderBinding('emby'),
+    );
+  }
 
+  Widget _buildEmbyModeControls({bool includeProxyMode = true}) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SegmentedButton<bool>(
           segments: [
@@ -2191,24 +2520,15 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
               : (values) => setState(() => _embyPlaylistMode = values.first),
         ),
         const SizedBox(height: 12),
-        PlaybackProxyModeControl(
-          value: _embyProxyMode,
-          enabled: !_isLoading,
-          onChanged: (value) => setState(() => _embyProxyMode = value),
-        ),
-        const SizedBox(height: 14),
-        Expanded(
-          child: _embyPlaylistMode
-              ? EmbyPlaylistForm(
-                  roomId: widget.roomId,
-                  parentId: widget.parentId ?? '',
-                  binds: _embyBinds,
-                  proxyMode: _embyProxyMode,
-                  onDraftChanged: (value) => _embyPlaylistHasDraft = value,
-                  onOpenBinding: () => _openProviderBinding('emby'),
-                )
-              : _buildEmbyLibraryContent(theme),
-        ),
+        if (includeProxyMode) ...[
+          PlaybackProxyModeControl(
+            value: _embyProxyMode,
+            enabled: !_isLoading,
+            source: _embyPlaybackPolicySource,
+            onChanged: (value) => setState(() => _embyProxyMode = value),
+          ),
+          const SizedBox(height: 12),
+        ],
       ],
     );
   }
@@ -2219,8 +2539,9 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
     }
     if (!_boundVendors.contains('emby')) return _buildBindGuide('Emby', theme);
 
-    return Column(
+    final controls = Column(
       children: [
+        _buildEmbyModeControls(),
         _buildProviderBindSelector<EmbyBindInfo>(
           theme: theme,
           items: _embyBinds,
@@ -2255,65 +2576,64 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
               : '/${_embyBreadcrumbs.map((entry) => entry.$2).join('/')}',
           _goUpEmby,
         ),
-        Expanded(
-          child: _embyLoading && _embyFiles.isEmpty
-              ? const AppLoadingIndicator()
-              : DiscoveryBrowser(
-                  key: ValueKey(
-                    'emby:$_embyServerId:$_embyInstanceName:'
-                    '$_embyPath:$_embyKeyword',
-                  ),
-                  items: [
-                    for (final file in _embyFiles)
-                      DiscoveryBrowserEntry(
-                        key: file.id,
-                        title: file.name.isEmpty
-                            ? context.l10n.unknown
-                            : file.name,
-                        subtitle: file.description.isNotEmpty
-                            ? file.description
-                            : localizedMediaVariant(context, file.type),
-                        source: file.source,
-                        isContainer: file.isDir,
-                        leading: file.thumbnail.isEmpty
-                            ? Icon(
-                                file.isDir
-                                    ? Icons.folder_rounded
-                                    : Icons.movie_outlined,
-                                color: Colors.green,
-                              )
-                            : AppImageThumbnail(
-                                url: file.thumbnail,
-                                headers:
-                                    resourceUrlResolver.authenticatedHeaders,
-                                width: 48,
-                                height: 48,
-                                borderRadius: BorderRadius.circular(4),
-                                errorIcon: Icons.movie_outlined,
-                              ),
-                      ),
-                  ],
-                  selectionController: _embySelection,
-                  selectionScope: _providerBindKey(
-                    _embyServerId,
-                    _embyInstanceName,
-                  ),
-                  loading: _embyLoading || _isLoading,
-                  hasMore: _embyHasMore,
-                  onLoadMore: () => _loadEmby(_embyPath, loadMore: true),
-                  onOpen: (entry) => _enterEmbyDir(entry.key, entry.title),
-                  onAddSelected: _addDiscoveredEntries,
-                  onAddCurrentList: _embyListSource == null
-                      ? null
-                      : () => _addDiscoveredSource(
-                          _embyListSource!,
-                          _embyPath.isEmpty ? 'Emby Library' : '',
-                        ),
-                  emptyIcon: Icons.video_library_rounded,
-                  emptyTitle: context.l10n.noMedia,
-                ),
-        ),
       ],
+    );
+    return ProviderWorkspace(
+      controls: controls,
+      results: _buildEmbyLibraryBrowser(),
+    );
+  }
+
+  Widget _buildEmbyLibraryBrowser() {
+    if (_embyLoading && _embyFiles.isEmpty) {
+      return const AppLoadingIndicator();
+    }
+    return DiscoveryBrowser(
+      key: ValueKey(
+        'emby:$_embyServerId:$_embyInstanceName:'
+        '$_embyPath:$_embyKeyword',
+      ),
+      items: [
+        for (final file in _embyFiles)
+          DiscoveryBrowserEntry(
+            key: file.id,
+            title: file.name.isEmpty ? context.l10n.unknown : file.name,
+            subtitle: file.description.isNotEmpty
+                ? file.description
+                : localizedMediaVariant(context, file.type),
+            source: file.source,
+            isContainer: file.isDir,
+            leading: file.thumbnail.isEmpty
+                ? Icon(
+                    file.isDir ? Icons.folder_rounded : Icons.movie_outlined,
+                    color: Colors.green,
+                  )
+                : AppImageThumbnail(
+                    url: file.thumbnail,
+                    headers: resourceUrlResolver.authenticatedHeaders,
+                    width: 48,
+                    height: 48,
+                    borderRadius: BorderRadius.circular(4),
+                    errorIcon: Icons.movie_outlined,
+                  ),
+          ),
+      ],
+      selectionController: _embySelection,
+      selectionScope: _providerBindKey(_embyServerId, _embyInstanceName),
+      onSelectionChanged: () => setState(() {}),
+      loading: _embyLoading || _isLoading,
+      hasMore: _embyHasMore,
+      onLoadMore: () => _loadEmby(_embyPath, loadMore: true),
+      onOpen: (entry) => _enterEmbyDir(entry.key, entry.title),
+      onAddSelected: _addDiscoveredEntries,
+      onAddCurrentList: _embyListSource == null
+          ? null
+          : () => _addDiscoveredSource(
+              _embyListSource!,
+              _embyPath.isEmpty ? 'Emby Library' : '',
+            ),
+      emptyIcon: Icons.video_library_rounded,
+      emptyTitle: context.l10n.noMedia,
     );
   }
 
@@ -2323,7 +2643,7 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
       return _buildBindGuide('Cloudreve', theme);
     }
 
-    return Column(
+    final controls = Column(
       children: [
         _buildProviderBindSelector<CloudreveBindInfo>(
           theme: theme,
@@ -2358,6 +2678,7 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
         PlaybackProxyModeControl(
           value: _cloudreveProxyMode,
           enabled: !_cloudreveLoading && !_isLoading,
+          source: _cloudrevePlaybackPolicySource,
           onChanged: (value) => setState(() => _cloudreveProxyMode = value),
         ),
         const SizedBox(height: 12),
@@ -2375,65 +2696,66 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
           ),
         ),
         _buildPathBar(theme, _cloudrevePath, _goUpCloudreve),
-        Expanded(
-          child: _cloudreveLoading && _cloudreveFiles.isEmpty
-              ? const AppLoadingIndicator()
-              : DiscoveryBrowser(
-                  key: ValueKey(
-                    'cloudreve:$_cloudreveServerId:$_cloudreveInstanceName:'
-                    '$_cloudrevePath:$_cloudreveKeyword',
-                  ),
-                  items: [
-                    for (final file in _cloudreveFiles)
-                      DiscoveryBrowserEntry(
-                        key: file.path,
-                        title: file.name,
-                        subtitle: file.isDir ? '' : _formatSize(file.size),
-                        source: file.source,
-                        isContainer: file.isDir,
-                        leading: file.thumbnail.isEmpty
-                            ? Icon(
-                                file.isDir
-                                    ? Icons.folder_rounded
-                                    : Icons.movie_outlined,
-                                color: Colors.teal,
-                              )
-                            : AppImageThumbnail(
-                                url: file.thumbnail,
-                                headers:
-                                    resourceUrlResolver.authenticatedHeaders,
-                                width: 48,
-                                height: 48,
-                                borderRadius: BorderRadius.circular(4),
-                                errorIcon: Icons.movie_outlined,
-                              ),
-                      ),
-                  ],
-                  selectionController: _cloudreveSelection,
-                  selectionScope: _providerBindKey(
-                    _cloudreveServerId,
-                    _cloudreveInstanceName,
-                  ),
-                  loading: _cloudreveLoading || _isLoading,
-                  hasMore: _cloudreveHasMore,
-                  onLoadMore: () =>
-                      _loadCloudreve(_cloudrevePath, loadMore: true),
-                  onOpen: (entry) => _openCloudreveDirectory(entry.key),
-                  onAddSelected: _addDiscoveredEntries,
-                  onAddCurrentList: _cloudreveListSource == null
-                      ? null
-                      : () => _addDiscoveredSource(
-                          _cloudreveListSource!,
-                          Uri.tryParse(
-                                _cloudrevePath,
-                              )?.pathSegments.lastOrNull ??
-                              'Cloudreve',
-                        ),
-                  emptyIcon: Icons.cloud_off_rounded,
-                  emptyTitle: context.l10n.noFiles,
-                ),
-        ),
       ],
+    );
+    return ProviderWorkspace(
+      controls: controls,
+      results: _buildCloudreveBrowser(),
+    );
+  }
+
+  Widget _buildCloudreveBrowser() {
+    if (_cloudreveLoading && _cloudreveFiles.isEmpty) {
+      return const AppLoadingIndicator();
+    }
+    return DiscoveryBrowser(
+      key: ValueKey(
+        'cloudreve:$_cloudreveServerId:$_cloudreveInstanceName:'
+        '$_cloudrevePath:$_cloudreveKeyword',
+      ),
+      items: [
+        for (final file in _cloudreveFiles)
+          DiscoveryBrowserEntry(
+            key: file.path,
+            title: file.name,
+            subtitle: file.isDir ? '' : _formatSize(file.size),
+            source: file.source,
+            isContainer: file.isDir,
+            leading: file.thumbnail.isEmpty
+                ? Icon(
+                    file.isDir ? Icons.folder_rounded : Icons.movie_outlined,
+                    color: Colors.teal,
+                  )
+                : AppImageThumbnail(
+                    url: file.thumbnail,
+                    headers: resourceUrlResolver.authenticatedHeaders,
+                    width: 48,
+                    height: 48,
+                    borderRadius: BorderRadius.circular(4),
+                    errorIcon: Icons.movie_outlined,
+                  ),
+          ),
+      ],
+      selectionController: _cloudreveSelection,
+      selectionScope: _providerBindKey(
+        _cloudreveServerId,
+        _cloudreveInstanceName,
+      ),
+      onSelectionChanged: () => setState(() {}),
+      loading: _cloudreveLoading || _isLoading,
+      hasMore: _cloudreveHasMore,
+      onLoadMore: () => _loadCloudreve(_cloudrevePath, loadMore: true),
+      onOpen: (entry) => _openCloudreveDirectory(entry.key),
+      onAddSelected: _addDiscoveredEntries,
+      onAddCurrentList: _cloudreveListSource == null
+          ? null
+          : () => _addDiscoveredSource(
+              _cloudreveListSource!,
+              Uri.tryParse(_cloudrevePath)?.pathSegments.lastOrNull ??
+                  'Cloudreve',
+            ),
+      emptyIcon: Icons.cloud_off_rounded,
+      emptyTitle: context.l10n.noFiles,
     );
   }
 
@@ -2680,6 +3002,7 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
             onPressed: () => setState(() {
               _biliSelectedIndex = index;
               _biliPreview = null;
+              _bilibiliSelection.clear();
             }),
           );
         },
@@ -2845,6 +3168,7 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
       _directHeaders.add(_DirectHeaderDraft());
       _directHeaderError = _currentDirectHeaderValidationMessage();
       _directPreview = const [];
+      _directSelection.clear();
     });
   }
 
@@ -2853,6 +3177,7 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
     final header = _directHeaders.removeAt(index);
     header.dispose();
     _directPreview = const [];
+    _directSelection.clear();
     _updateDirectHeaderValidation();
   }
 
@@ -2862,6 +3187,7 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
     setState(() {
       _directHeaderError = message;
       _directPreview = const [];
+      _directSelection.clear();
     });
   }
 
@@ -3005,7 +3331,10 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
       return;
     }
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _directSelection.clear();
+    });
     try {
       final preview = await Future.wait([
         for (final url in urls)
@@ -3037,12 +3366,15 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
             key: 'direct-$index',
             title: prepared.suggestedName,
             subtitle: _playbackKindLabel(prepared.playbackKind),
-            source: prepared.source,
+            source: prepared.source.withPlaybackProxyMode(_directProxyMode),
             isContainer: false,
             selectable: prepared.hasSource(),
             leading: const Icon(Icons.link_rounded),
           ),
       ],
+      selectionController: _directSelection,
+      selectionScope: _urlController.text,
+      onSelectionChanged: () => setState(() {}),
       loading: _isLoading,
       initiallySelectAll: true,
       onAddSelected: _addPreparedDirectLinks,
@@ -3127,6 +3459,15 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
   Future<void> _addRtmpPublish() async {
     final preview = _rtmpPreview;
     if (preview == null || !preview.hasSource()) return;
+    if (_rtmpPublishKeyType !=
+            client_enum.PublishKeyType.PUBLISH_KEY_TYPE_PERMANENT &&
+        !_rtmpPublishExpiresAt.isAfter(widget.now())) {
+      AppNotifications.showWarning(
+        context,
+        context.l10n.publishKeyExpirationMustBeFuture,
+      );
+      return;
+    }
     setState(() => _isLoading = true);
     try {
       final name = _nameController.text.trim();
@@ -3139,6 +3480,12 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
       final publish = await providerGateway.createRtmpPublishKeyInfo(
         widget.roomId,
         mediaId,
+        keyType: _rtmpPublishKeyType,
+        expiresAt:
+            _rtmpPublishKeyType ==
+                client_enum.PublishKeyType.PUBLISH_KEY_TYPE_PERMANENT
+            ? null
+            : _rtmpPublishExpiresAt.millisecondsSinceEpoch ~/ 1000,
       );
       final streamInfo = await providerGateway.getRtmpStreamInfo(
         roomId: widget.roomId,
@@ -3312,9 +3659,19 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
                     : context.l10n.disabled,
               ),
             _buildRtmpInfoRow(
-              context.l10n.expirationTime,
-              _formatTimestamp(publish.expiresAt),
+              context.l10n.publishKeyType,
+              _publishKeyTypeLabel(publish.keyType),
             ),
+            if (publish.expiresAt case final expiresAt?)
+              _buildRtmpInfoRow(
+                context.l10n.expirationTime,
+                _formatTimestamp(expiresAt),
+              )
+            else
+              _buildRtmpInfoRow(
+                context.l10n.expirationTime,
+                context.l10n.noExpiration,
+              ),
             _buildRtmpInfoRow(
               context.l10n.currentStatus,
               streamInfo.active ? context.l10n.active : context.l10n.inactive,
@@ -3415,12 +3772,69 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
         '${date.minute.toString().padLeft(2, '0')}';
   }
 
+  String _formatDateTime(DateTime value) =>
+      _formatTimestamp(value.millisecondsSinceEpoch ~/ 1000);
+
+  String _publishKeyTypeLabel(client_enum.PublishKeyType value) {
+    switch (value) {
+      case client_enum.PublishKeyType.PUBLISH_KEY_TYPE_SINGLE_USE:
+        return context.l10n.singleUsePublishKey;
+      case client_enum.PublishKeyType.PUBLISH_KEY_TYPE_EXPIRING:
+        return context.l10n.expiringPublishKey;
+      case client_enum.PublishKeyType.PUBLISH_KEY_TYPE_PERMANENT:
+        return context.l10n.permanentPublishKey;
+      case client_enum.PublishKeyType.PUBLISH_KEY_TYPE_UNSPECIFIED:
+        return context.l10n.publishKeyType;
+    }
+    return context.l10n.publishKeyType;
+  }
+
+  Future<void> _selectRtmpPublishExpiration() async {
+    final now = widget.now();
+    final selectedDate = await showDatePicker(
+      context: context,
+      initialDate: _rtmpPublishExpiresAt.isBefore(now)
+          ? now.add(const Duration(hours: 1))
+          : _rtmpPublishExpiresAt,
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 3650)),
+    );
+    if (!mounted || selectedDate == null) return;
+
+    final selectedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_rtmpPublishExpiresAt),
+    );
+    if (!mounted || selectedTime == null) return;
+
+    final expiresAt = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      selectedTime.hour,
+      selectedTime.minute,
+    );
+    if (!expiresAt.isAfter(widget.now())) {
+      if (mounted) {
+        AppNotifications.showWarning(
+          context,
+          context.l10n.publishKeyExpirationMustBeFuture,
+        );
+      }
+      return;
+    }
+
+    setState(() => _rtmpPublishExpiresAt = expiresAt);
+  }
+
   Future<void> _parseBilibili() async {
     final url = _biliUrlController.text.trim();
     if (url.isEmpty) return;
     setState(() {
       _isLoading = true;
       _biliInfo = null;
+      _biliPreview = null;
+      _bilibiliSelection.clear();
     });
     try {
       final info = await providerGateway.parseBilibiliInfo(
@@ -3450,6 +3864,23 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
     final index = _biliSelectedIndex.clamp(0, candidates.length - 1).toInt();
     return candidates[index];
   }
+
+  provider_common.DiscoveredSource? get _bilibiliPlaybackPolicySource =>
+      _bilibiliSelection.entries.firstOrNull?.source ??
+      _selectedBilibiliCandidate?.source;
+
+  provider_common.DiscoveredSource? get _directPlaybackPolicySource =>
+      _directSelection.entries.firstOrNull?.source ??
+      _directPreview.firstOrNull?.source;
+
+  provider_common.DiscoveredSource? get _alistPlaybackPolicySource =>
+      _alistSelection.entries.firstOrNull?.source ?? _alistListSource;
+
+  provider_common.DiscoveredSource? get _embyPlaybackPolicySource =>
+      _embySelection.entries.firstOrNull?.source ?? _embyListSource;
+
+  provider_common.DiscoveredSource? get _cloudrevePlaybackPolicySource =>
+      _cloudreveSelection.entries.firstOrNull?.source ?? _cloudreveListSource;
 
   bool get _bilibiliPreviewHasMore {
     return _biliPreview?.hasMore ?? false;
@@ -3567,6 +3998,7 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
     setState(() {
       _alistLoading = true;
       if (!loadMore) {
+        _alistSelection.clear();
         _alistPath = path;
         _alistFiles = [];
         _alistListSource = null;
@@ -3619,6 +4051,7 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
     setState(() {
       _cloudreveLoading = true;
       if (!loadMore) {
+        _cloudreveSelection.clear();
         _cloudrevePath = path;
         _cloudreveFiles = [];
         _cloudreveListSource = null;
@@ -3798,6 +4231,7 @@ class _AddMediaDialogState extends State<AddMediaDialog> {
     setState(() {
       _embyLoading = true;
       if (!loadMore) {
+        _embySelection.clear();
         _embyPath = path;
         _embyFiles = [];
         _embyListSource = null;

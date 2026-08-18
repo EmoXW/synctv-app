@@ -34,6 +34,7 @@ import 'package:synctv_app/features/room/application/realtime_event_log_preferen
 import 'package:synctv_app/core/network/resource_url_resolver.dart';
 import 'package:synctv_app/core/presentation/dependency_scope.dart';
 import 'package:synctv_app/features/room/application/room_chat_gateway.dart';
+import 'package:synctv_app/features/room/application/chat_read_state_updater.dart';
 import 'package:synctv_app/features/room/application/room_playback_gateway.dart';
 import 'package:synctv_app/features/room/application/room_playback_controller.dart';
 import 'package:synctv_app/features/room/application/playback_mode_preferences_controller.dart';
@@ -42,6 +43,7 @@ import 'package:synctv_app/features/room/application/room_management_gateway.dar
 import 'package:synctv_app/features/media_library/application/media_library_gateway.dart';
 import 'package:synctv_app/features/room/application/picture_in_picture_controller.dart';
 import 'package:synctv_app/features/room/application/player_volume_preferences_controller.dart';
+import 'package:synctv_app/features/room/application/playback_overlay_preferences_controller.dart';
 import 'package:synctv_app/features/media_p2p/application/p2p_media_preferences_controller.dart';
 import 'package:synctv_app/features/media_p2p/application/p2p_media_runtime.dart';
 import 'package:synctv_app/features/room/application/room_realtime_channel.dart';
@@ -62,6 +64,7 @@ import 'package:synctv_app/features/room/presentation/widgets/playback_diagnosti
 import 'package:synctv_app/features/room/presentation/widgets/playback_empty_state.dart';
 import 'package:synctv_app/features/room/presentation/widgets/playback_options_control.dart';
 import 'package:synctv_app/features/room/presentation/widgets/playlist_empty_state.dart';
+import 'package:synctv_app/features/room/presentation/widgets/playlist_search_field.dart';
 import 'package:synctv_app/features/room/presentation/widgets/free_mode_settings_fields.dart';
 import 'package:synctv_app/features/media_p2p/presentation/p2p_media_settings_fields.dart';
 import 'package:synctv_app/features/room_invite/presentation/room_invite_actions.dart';
@@ -182,6 +185,13 @@ class RoomCollaborationTabBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final visibleIndexes = [
+      for (var index = 0; index < labels.length; index++)
+        if (enabled[index]) index,
+    ];
+
+    if (visibleIndexes.isEmpty) return const SizedBox.shrink();
+
     return AppPanelSurface(
       height: 56,
       color: theme.colorScheme.surface,
@@ -191,13 +201,13 @@ class RoomCollaborationTabBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          for (var index = 0; index < labels.length; index++)
+          for (final index in visibleIndexes)
             Expanded(
               child: _RoomCollaborationTabButton(
                 label: labels[index],
                 icon: icons[index],
                 selected: selectedIndex == index,
-                enabled: enabled[index],
+                enabled: true,
                 onPressed: () => onSelected(index),
               ),
             ),
@@ -281,6 +291,7 @@ class _RoomScreenState extends State<RoomScreen>
   static const _endedLiveStreamDrainTimeout = Duration(seconds: 120);
 
   late final RoomChatGateway _chatGateway;
+  late final ChatReadStateUpdater _chatReadStateUpdater;
   late final RoomPlaybackGateway _playbackGateway;
   late final PlaybackModePreferencesController _playbackModePreferences;
   late final RoomSessionGateway _sessionGateway;
@@ -292,6 +303,7 @@ class _RoomScreenState extends State<RoomScreen>
   late final P2pMediaRuntimeFactory _p2pRuntimeFactory;
   late final VoiceChatSessionFactory _voiceChatSessionFactory;
   late final PlayerVolumePreferencesController _playerVolumePreferences;
+  late final PlaybackOverlayPreferencesController _playbackOverlayPreferences;
 
   late TabController _tabController;
   late PlaybackModeConfig _playbackModeConfig;
@@ -371,6 +383,8 @@ class _RoomScreenState extends State<RoomScreen>
   int _mentionCandidatePage = 0;
   bool _mentionCandidatesHasMore = true;
   List<RoomMediaEntry> _mediaEntries = [];
+  late final TextEditingController _mediaSearchController;
+  bool _mediaSupportsSearch = true;
   bool _isLoadingMediaEntries = true;
   bool _isVideoLoading = false;
   bool get _playbackNavigationInFlight =>
@@ -380,6 +394,7 @@ class _RoomScreenState extends State<RoomScreen>
   late final PictureInPictureController _pictureInPicture;
   bool _pictureInPictureAvailable = false;
   bool _fullScreenRouteOpen = false;
+  final ValueNotifier<int> _videoPresentationRevision = ValueNotifier<int>(0);
   String? _videoError;
   String? _roomSessionError;
 
@@ -391,6 +406,7 @@ class _RoomScreenState extends State<RoomScreen>
   bool _hasMoreMediaEntries = true;
   bool _isLoadingMoreMediaEntries = false;
   bool _isRefreshingMediaEntries = false;
+  final AsyncStateEpoch _mediaLibraryStateEpoch = AsyncStateEpoch();
   final ScrollController _mediaEntryScrollController = ScrollController();
 
   // Playlist navigation
@@ -493,6 +509,7 @@ class _RoomScreenState extends State<RoomScreen>
   bool get _canViewMembers => _capabilities.canViewMembers;
   bool get _canViewChatHistory => _capabilities.canViewChatHistory;
   bool get _canSendChatMessages => _capabilities.canSendChatMessages;
+  bool get _canAccessChat => _canViewChatHistory || _canSendChatMessages;
   bool get _canManageOwnMedia => _capabilities.canManageOwnMedia;
   bool get _canDeleteMedia => _capabilities.canDeleteMedia;
   bool get _canClearMedia => _capabilities.canClearMedia;
@@ -502,6 +519,24 @@ class _RoomScreenState extends State<RoomScreen>
   bool get _canDeleteChatMessages => _capabilities.canDeleteChatMessages;
 
   bool get _canViewPlaybackHistory => _capabilities.canViewPlaybackHistory;
+
+  List<int> get _visibleRoomTabIndexes => [
+    if (_canAccessChat) 0,
+    if (_canBrowseLibrary) 1,
+    if (_canViewMembers) 2,
+    if (_showRealtimeDebugTab) 3,
+  ];
+
+  void _ensureSelectedRoomTabIsVisible() {
+    final visibleTabs = _visibleRoomTabIndexes;
+    if (visibleTabs.isEmpty || visibleTabs.contains(_roomTabIndex)) return;
+
+    final nextIndex = visibleTabs.first;
+    _tabController.index = nextIndex;
+    if (mounted) {
+      setState(() => _roomTabIndex = nextIndex);
+    }
+  }
 
   Future<void> _navigatePlayback({required bool previous}) async {
     if (_playbackNavigationInFlight || !_canNavigatePlayback) return;
@@ -525,7 +560,12 @@ class _RoomScreenState extends State<RoomScreen>
   @override
   void initState() {
     super.initState();
+    _mediaSearchController = TextEditingController();
     _chatGateway = DependencyScope.read<RoomChatGateway>(context);
+    _chatReadStateUpdater = ChatReadStateUpdater(
+      markRead: (messageId) =>
+          _chatGateway.markRead(widget.room.roomId, messageId),
+    );
     _playbackGateway = DependencyScope.read<RoomPlaybackGateway>(context);
     _playbackController = RoomPlaybackController();
     _playbackModePreferences =
@@ -545,6 +585,8 @@ class _RoomScreenState extends State<RoomScreen>
     );
     _playerVolumePreferences =
         DependencyScope.read<PlayerVolumePreferencesController>(context);
+    _playbackOverlayPreferences =
+        DependencyScope.read<PlaybackOverlayPreferencesController>(context);
     _resourceUrlResolver = DependencyScope.read<ResourceUrlResolver>(context);
     _pictureInPicture = DependencyScope.read<PictureInPictureController>(
       context,
@@ -566,16 +608,7 @@ class _RoomScreenState extends State<RoomScreen>
       _handleRealtimeLogMaxEntriesChanged,
     );
     _danmakuController.onStreamAccessExpired = () {
-      final status = _currentStatus;
-      if (status?.entry?.url.isNotEmpty == true) {
-        unawaited(
-          _applyPlaybackStatus(
-            status!,
-            forceReloadVideo: true,
-            forceSeek: true,
-          ),
-        );
-      }
+      unawaited(_refreshDanmakuStreamAccess());
     };
 
     // Initialize independent voice-chat and P2P-media sessions.
@@ -886,6 +919,7 @@ class _RoomScreenState extends State<RoomScreen>
     _samplePlaybackDiagnostics();
     _diagnosticsTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       if (!mounted) return;
+      _retryAutomaticPlaybackSync();
       setState(_samplePlaybackDiagnostics);
     });
   }
@@ -949,6 +983,8 @@ class _RoomScreenState extends State<RoomScreen>
     final channel = _channel;
     if (channel == null || _selfMember == null) return;
 
+    _ensureSelectedRoomTabIsVisible();
+
     if (!_canSelectCurrentPlaylistEntries &&
         (_isSelectionMode || _selectedMediaEntryIds.isNotEmpty)) {
       setState(() {
@@ -965,6 +1001,7 @@ class _RoomScreenState extends State<RoomScreen>
         );
       }
     } else {
+      _invalidateMediaLibraryRequests();
       if (_playlistItemsObserved) {
         _sendRealtimeMessage(
           _realtimeProtocol.encodeUnobserveResource('playlist_items'),
@@ -1071,6 +1108,9 @@ class _RoomScreenState extends State<RoomScreen>
           .where((entry) => !entry.isDeleted)
           .toList()
           .reversed;
+      if (_canViewChatHistory && page.messages.isNotEmpty) {
+        _chatReadStateUpdater.markVisible(page.messages.first.id);
+      }
       if (mounted) {
         setState(() {
           _messages.prependUnique(history, maxEntries: 100);
@@ -1134,60 +1174,73 @@ class _RoomScreenState extends State<RoomScreen>
   void _onMediaEntryScroll() {
     if (_mediaEntryScrollController.position.pixels >=
         _mediaEntryScrollController.position.maxScrollExtent - 200) {
-      if (!_isLoadingMoreMediaEntries && _hasMoreMediaEntries) {
+      if (!_isLoadingMediaEntries &&
+          !_isLoadingMoreMediaEntries &&
+          !_isRefreshingMediaEntries &&
+          _hasMoreMediaEntries) {
         _loadMoreMediaEntries();
       }
     }
   }
 
   Future<void> _loadMoreMediaEntries() async {
-    if (_isLoadingMoreMediaEntries) return;
+    if (_isLoadingMediaEntries ||
+        _isLoadingMoreMediaEntries ||
+        _isRefreshingMediaEntries ||
+        !_hasMoreMediaEntries) {
+      return;
+    }
+
+    final requestEpoch = _mediaLibraryStateEpoch.capture();
+    final parentPlaylist = _playlistStack.isNotEmpty
+        ? _playlistStack.last
+        : null;
+    final requestedPage = _currentPage + 1;
+    final requestedCursor = _usesCursorPagination ? _nextCursor : null;
+    final requestedSearch = _mediaSearchController.text.trim();
 
     setState(() {
       _isLoadingMoreMediaEntries = true;
     });
 
     try {
-      final parentPlaylist = _playlistStack.isNotEmpty
-          ? _playlistStack.last
-          : null;
       final result = await _mediaLibraryGateway.listMediaLibrary(
         widget.room.roomId,
         playlistId: parentPlaylist?.playbackPlaylistId ?? '',
         target: parentPlaylist?.playbackTarget,
-        page: _currentPage + 1,
-        cursor: _usesCursorPagination ? _nextCursor : null,
+        page: requestedPage,
+        cursor: requestedCursor,
         pageSize: _pageSize,
+        search: requestedSearch,
       );
 
       final entries = result.entries;
       final total = result.total;
 
-      if (mounted) {
-        setState(() {
-          if (entries.isNotEmpty) {
-            _mediaEntries.addAll(entries);
-            _usesCursorPagination = result.usesCursor;
-            _nextCursor = result.nextCursor;
-            _currentPage = result.page;
-            _hasMoreMediaEntries = result.usesCursor
-                ? result.nextCursor.isNotEmpty
-                : total != null && _mediaEntries.length < total;
-          } else {
-            _hasMoreMediaEntries = false;
-          }
-          _isLoadingMoreMediaEntries = false;
-        });
-      }
+      if (!mounted || !_mediaLibraryStateEpoch.isCurrent(requestEpoch)) return;
+      setState(() {
+        if (entries.isNotEmpty) {
+          _mediaEntries.addAll(entries);
+          _usesCursorPagination = result.usesCursor;
+          _nextCursor = result.nextCursor;
+          _currentPage = result.page;
+          _mediaSupportsSearch = result.supportsSearch;
+          _hasMoreMediaEntries = result.usesCursor
+              ? result.nextCursor.isNotEmpty
+              : total != null && _mediaEntries.length < total;
+        } else {
+          _hasMoreMediaEntries = false;
+        }
+        _isLoadingMoreMediaEntries = false;
+      });
     } catch (e) {
       debugPrint('Load more media entries error: $e');
-      if (mounted) {
-        setState(() {
-          _isLoadingMoreMediaEntries = false;
-          _hasMoreMediaEntries = false;
-        });
-        AppNotifications.showError(context, context.l10n.errorMessage('$e'));
-      }
+      if (!mounted || !_mediaLibraryStateEpoch.isCurrent(requestEpoch)) return;
+      setState(() {
+        _isLoadingMoreMediaEntries = false;
+        _hasMoreMediaEntries = false;
+      });
+      AppNotifications.showError(context, context.l10n.errorMessage('$e'));
     }
   }
 
@@ -1422,6 +1475,9 @@ class _RoomScreenState extends State<RoomScreen>
         });
         if (shouldAutoScroll) {
           _scrollToBottom();
+          if (message.isChatCreated && _canViewChatHistory) {
+            _chatReadStateUpdater.markVisible(chatEntry.id);
+          }
         } else if (!_showChatScrollToBottom) {
           setState(() => _showChatScrollToBottom = true);
         }
@@ -1554,6 +1610,7 @@ class _RoomScreenState extends State<RoomScreen>
         return;
       }
       if (message.resourceObserveId == 'playlist_items' && mounted) {
+        _invalidateMediaLibraryRequests();
         setState(() {
           _mediaEntries = const [];
           _currentPage = 1;
@@ -1900,6 +1957,7 @@ class _RoomScreenState extends State<RoomScreen>
     }
     setState(() {
       _mediaEntries = mediaLibrary.entries;
+      _mediaSupportsSearch = mediaLibrary.supportsSearch;
       _mediaEntriesScopeKey = _selectionObservationScopeKey;
       _currentPage = mediaLibrary.page;
       _usesCursorPagination = mediaLibrary.usesCursor;
@@ -1965,8 +2023,14 @@ class _RoomScreenState extends State<RoomScreen>
         final currentPos = controller.value.position.inMilliseconds / 1000.0;
         final positionDrift = (currentPos - target.positionSeconds).abs();
         final shouldAutoSeek =
-            !_playbackModeConfig.freeModeEnabled &&
-            positionDrift > _playbackModeConfig.autoSeekDriftThresholdSeconds;
+            target.isAtEnd ||
+            shouldAutoSeekToPlaybackSyncTarget(
+              currentPositionSeconds: currentPos,
+              target: target,
+              driftThresholdSeconds:
+                  _playbackModeConfig.autoSeekDriftThresholdSeconds,
+              freeModeEnabled: _playbackModeConfig.freeModeEnabled,
+            );
         final shouldManualSeek =
             forceSeek &&
             positionDrift >=
@@ -2008,6 +2072,32 @@ class _RoomScreenState extends State<RoomScreen>
       duration: controller.value.duration,
       now: SyncedClock.now(),
     );
+  }
+
+  void _retryAutomaticPlaybackSync() {
+    if (_isSyncing || _playbackModeConfig.freeModeEnabled) return;
+
+    final status = _currentStatus;
+    final controller = _videoPlayerController;
+    if (status?.entry?.live != false ||
+        controller == null ||
+        !controller.value.isInitialized) {
+      return;
+    }
+
+    final target = _playbackSyncTarget(status!, controller);
+    final currentPositionSeconds =
+        controller.value.position.inMilliseconds / 1000.0;
+    if (!shouldAutoSeekToPlaybackSyncTarget(
+      currentPositionSeconds: currentPositionSeconds,
+      target: target,
+      driftThresholdSeconds: _playbackModeConfig.autoSeekDriftThresholdSeconds,
+      freeModeEnabled: _playbackModeConfig.freeModeEnabled,
+    )) {
+      return;
+    }
+
+    unawaited(_performSync(status));
   }
 
   double? _playbackDeviationSeconds() {
@@ -2781,14 +2871,24 @@ class _RoomScreenState extends State<RoomScreen>
     final danmuUrl = nextEntry.danmu == null
         ? null
         : _resourceUrlResolver.resolve(nextEntry.danmu!);
+    final danmuHeaders = authenticatedServerResourceHeaders(
+      _resourceUrlResolver,
+      nextEntry.danmu ?? '',
+      nextEntry.danmuHeaders,
+    );
+    final streamDanmuHeaders = authenticatedServerResourceHeaders(
+      _resourceUrlResolver,
+      nextEntry.streamDanmu ?? '',
+      nextEntry.streamDanmuHeaders,
+    );
 
     _danmakuController.updateConfig(
       danmakuUrl: danmuUrl,
-      danmakuHeaders: nextEntry.danmuHeaders,
+      danmakuHeaders: danmuHeaders,
       danmakuP2pDelivery: nextEntry.danmuP2pDelivery,
       localizeStaticResource: _resolveDanmakuPlaybackResource,
       streamDanmakuUrl: streamUrl,
-      streamDanmakuHeaders: nextEntry.streamDanmuHeaders,
+      streamDanmakuHeaders: streamDanmuHeaders,
       controller: _videoPlayerController,
       preserveLoadedDocument:
           previousEntry?.playbackAttachmentIdentity ==
@@ -2798,6 +2898,19 @@ class _RoomScreenState extends State<RoomScreen>
               previousEntry!.danmuP2pDelivery!.swarmId !=
                   nextEntry.danmuP2pDelivery!.swarmId),
     );
+  }
+
+  Future<void> _refreshDanmakuStreamAccess() async {
+    try {
+      final refreshed = await _sessionGateway.refreshSessionAfterUnauthorized();
+      if (!mounted || !refreshed) return;
+
+      final entry = _currentStatus?.entry;
+      if (entry == null) return;
+      _updateDanmakuResources(previousEntry: entry, nextEntry: entry);
+    } catch (error) {
+      debugPrint('Failed to refresh danmaku stream access: $error');
+    }
   }
 
   void _startEndedLiveStreamDrain() {
@@ -2972,6 +3085,7 @@ class _RoomScreenState extends State<RoomScreen>
       }
 
       _videoPlayerController = newController;
+      _videoPresentationRevision.value++;
       _videoPlayerSourceKey = sourceKey;
       _videoPlayerSourceExpireAt = sourceExpireAt;
       _videoPlaybackHasProgress = false;
@@ -3201,6 +3315,7 @@ class _RoomScreenState extends State<RoomScreen>
     _adaptiveVideoTracksSubscription = null;
     _adaptiveVideoTracks = const AdaptiveVideoTrackSnapshot();
     _videoPlayerController = null;
+    _videoPresentationRevision.value++;
     _videoPlayerSourceKey = null;
     _videoPlayerSourceExpireAt = null;
     _videoPlaybackHasProgress = false;
@@ -3235,6 +3350,7 @@ class _RoomScreenState extends State<RoomScreen>
     _adaptiveVideoTracksSubscription = null;
     _adaptiveVideoTracks = const AdaptiveVideoTrackSnapshot();
     _videoPlayerController = null;
+    _videoPresentationRevision.value++;
     _videoPlayerSourceKey = null;
     _videoPlayerSourceExpireAt = null;
     _videoPlaybackHasProgress = false;
@@ -3249,6 +3365,7 @@ class _RoomScreenState extends State<RoomScreen>
   @override
   void dispose() {
     _isDisposing = true;
+    _chatReadStateUpdater.dispose();
     _realtimeLogPreferences.maxEntries.removeListener(
       _handleRealtimeLogMaxEntriesChanged,
     );
@@ -3256,9 +3373,8 @@ class _RoomScreenState extends State<RoomScreen>
     _tabController.removeListener(_handleRoomTabChanged);
     _authErrorSubscription?.cancel();
     _realtimeSubscription?.cancel();
-    unawaited(_adaptiveVideoTracksSubscription?.cancel());
+    _disposeVideoControllerImmediately();
     _tabController.dispose();
-    unawaited(_disposeVideoController());
     unawaited(_pictureInPicture.exit());
     _syncTimer?.cancel();
     _diagnosticsTimer?.cancel();
@@ -3266,6 +3382,7 @@ class _RoomScreenState extends State<RoomScreen>
     _reconnectTimer?.cancel();
     unawaited(_channel?.close());
     _messageController.dispose();
+    _mediaSearchController.dispose();
     _chatScrollController.dispose();
     _mediaEntryScrollController.dispose();
     unawaited(_voiceChatManager?.dispose());
@@ -3276,6 +3393,7 @@ class _RoomScreenState extends State<RoomScreen>
       unawaited(_p2pEngineOperations.run(p2pEngine.dispose));
     }
     _danmakuController.dispose();
+    _videoPresentationRevision.dispose();
     _playbackController.dispose();
     _channel = null;
     _realtimeMessageBus.close();
@@ -3293,7 +3411,7 @@ class _RoomScreenState extends State<RoomScreen>
   }
 
   void _selectRoomTab(int index) {
-    if (index < 0 || index >= _roomTabCount) return;
+    if (!_visibleRoomTabIndexes.contains(index)) return;
     if (_roomTabIndex == index && _tabController.index == index) return;
     _tabController.index = index;
     if (mounted) {
@@ -3319,6 +3437,9 @@ class _RoomScreenState extends State<RoomScreen>
     final show = !_isChatNearBottom();
     if (show != _showChatScrollToBottom && mounted) {
       setState(() => _showChatScrollToBottom = show);
+    }
+    if (!show && _canViewChatHistory && _messages.isNotEmpty) {
+      _chatReadStateUpdater.markVisible(_messages.last.id);
     }
   }
 
@@ -3357,6 +3478,7 @@ class _RoomScreenState extends State<RoomScreen>
     return PictureInPicturePlaybackSurface(
       controller: _videoPlayerController,
       danmakuController: _danmakuController,
+      overlayPreferences: _playbackOverlayPreferences,
       emptyState: PlaybackEmptyState(
         error: _roomSessionError ?? _videoError,
         loading: _isVideoLoading,
@@ -3430,6 +3552,10 @@ class _RoomScreenState extends State<RoomScreen>
                         _videoPlayerController!.value.isInitialized
                     ? CustomVideoPlayer(
                         volumePreferences: _playerVolumePreferences,
+                        overlayPreferences: _playbackOverlayPreferences,
+                        p2pMediaPreferences: _canUseP2pMedia
+                            ? widget.p2pMediaPreferences
+                            : null,
                         subtitleSource: DependencyScope.read<SubtitleSource>(
                           context,
                         ),
@@ -3582,12 +3708,14 @@ class _RoomScreenState extends State<RoomScreen>
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.58),
                   ),
                 ),
-                const SizedBox(width: 8),
-                AppIconButton(
-                  onPressed: _canBrowseLibrary ? () => _selectRoomTab(1) : null,
-                  icon: Icons.playlist_play_rounded,
-                  tooltip: context.l10n.playlist,
-                ),
+                if (_canBrowseLibrary) ...[
+                  const SizedBox(width: 8),
+                  AppIconButton(
+                    onPressed: () => _selectRoomTab(1),
+                    icon: Icons.playlist_play_rounded,
+                    tooltip: context.l10n.playlist,
+                  ),
+                ],
                 const SizedBox(width: 4),
                 AppIconButton(
                   onPressed: () => copyRoomInviteLink(context, widget.room),
@@ -3605,14 +3733,22 @@ class _RoomScreenState extends State<RoomScreen>
   }
 
   Widget _buildRoomTabContent() {
-    final children = [
-      _buildChatTab(),
-      _buildPlaylistTab(),
-      _buildMembersTab(),
-      if (_showRealtimeDebugTab) _buildRealtimeEventsTab(),
-    ];
-    final index = _roomTabIndex.clamp(0, children.length - 1);
-    return IndexedStack(index: index, children: children);
+    final visibleTabs = _visibleRoomTabIndexes;
+    if (visibleTabs.isEmpty) return const SizedBox.shrink();
+
+    final selectedIndex = visibleTabs.indexOf(_roomTabIndex);
+    return IndexedStack(
+      index: selectedIndex < 0 ? 0 : selectedIndex,
+      children: [
+        for (final index in visibleTabs)
+          switch (index) {
+            0 => _buildChatTab(),
+            1 => _buildPlaylistTab(),
+            2 => _buildMembersTab(),
+            _ => _buildRealtimeEventsTab(),
+          },
+      ],
+    );
   }
 
   void _handleSync() {
@@ -3892,76 +4028,94 @@ class _RoomScreenState extends State<RoomScreen>
     _fullScreenRouteOpen = true;
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => CustomVideoPlayer(
-          volumePreferences: _playerVolumePreferences,
-          subtitleSource: DependencyScope.read<SubtitleSource>(context),
-          resourceUrlResolver: _resourceUrlResolver,
-          controller: _videoPlayerController!,
-          title: _currentStatus?.entry?.name ?? context.l10n.unknownVideo,
-          danmakuController: _danmakuController,
-          subtitles: _currentStatus?.entry?.subtitles,
-          playbackResourceIdentity:
-              _currentStatus?.entry?.playbackAttachmentIdentity ?? '',
-          resolveSubtitleResource: _resolveSubtitlePlaybackResource,
-          onSubtitleP2pDeactivated: _deactivateP2pSubtitle,
-          isLive: _currentStatus?.entry?.live == true,
-          liveStartedAt: _currentStatus?.entry?.liveStartedAt,
-          onToggleFullScreen: () => Navigator.of(context).pop(),
-          onSync: _handleSync,
-          onPrevious: _canNavigatePlayback
-              ? () => unawaited(_navigatePlayback(previous: true))
-              : null,
-          onNext: _canNavigatePlayback
-              ? () => unawaited(_navigatePlayback(previous: false))
-              : null,
-          onEnterPictureInPicture: _pictureInPictureAvailable
-              ? () => unawaited(_enterPictureInPicture())
-              : null,
-          freeModeEnabled: _playbackModeConfig.freeModeEnabled,
-          onFreeModeChanged: (enabled) =>
-              unawaited(_setFreeModeEnabled(enabled)),
-          canControlPlayback: _canControlPlaybackState,
-          isPlaybackExpectedToBePlaying: () =>
-              _currentStatus?.isPlaying == true,
-          onUserPlaybackStateChanged: _canControlPlaybackState
-              ? _handleUserPlaybackStateChanged
-              : null,
-          onUserSeek: _canControlPlaybackState ? _handleUserSeek : null,
-          onUserPlaybackSpeedChanged: _canControlPlaybackState
-              ? _handleUserPlaybackSpeedChanged
-              : null,
-          diagnosticsProvider: _playbackDiagnosticsContext,
-          loopPlayback:
-              _roomSettings.autoPlayEnabled &&
-              _roomSettings.autoPlayMode ==
-                  client_enum.PlayMode.PLAY_MODE_REPEAT_ONE,
-          shufflePlayback:
-              _roomSettings.autoPlayEnabled &&
-              _roomSettings.autoPlayMode ==
-                  client_enum.PlayMode.PLAY_MODE_SHUFFLE,
-          canChangePlayMode: _canManagePlaybackMode && !_playModeUpdateInFlight,
-          onLoopPlaybackChanged: (enabled) => _updateRoomPlaybackMode(
-            enabled
-                ? client_enum.PlayMode.PLAY_MODE_REPEAT_ONE
-                : client_enum.PlayMode.PLAY_MODE_SEQUENTIAL,
-          ),
-          onShufflePlaybackChanged: (enabled) => _updateRoomPlaybackMode(
-            enabled
-                ? client_enum.PlayMode.PLAY_MODE_SHUFFLE
-                : client_enum.PlayMode.PLAY_MODE_SEQUENTIAL,
-          ),
-          onReloadPlayback: () => unawaited(_reloadCurrentPlaybackUrl()),
-          onSendDanmaku: _sendDanmaku,
-          isFullScreen: true,
-          interactionMode: videoPlayerInteractionModeForPlatform(
-            defaultTargetPlatform,
-          ),
-          diagnosticsBuilder: (_) => _buildPlaybackDiagnosticsBadges(
-            compact: true,
-            includeLatency: true,
-            videoStyle: true,
-          ),
-          extraBottomWidget: _buildPlaybackOptionButton(compact: true),
+        builder: (context) => ValueListenableBuilder<int>(
+          valueListenable: _videoPresentationRevision,
+          builder: (context, _, child) {
+            final controller = _videoPlayerController;
+            if (controller == null || !controller.value.isInitialized) {
+              return Scaffold(
+                backgroundColor: Colors.black,
+                body: Center(child: _buildVideoEmptyState()),
+              );
+            }
+            return CustomVideoPlayer(
+              key: ValueKey(controller),
+              volumePreferences: _playerVolumePreferences,
+              overlayPreferences: _playbackOverlayPreferences,
+              p2pMediaPreferences: _canUseP2pMedia
+                  ? widget.p2pMediaPreferences
+                  : null,
+              subtitleSource: DependencyScope.read<SubtitleSource>(context),
+              resourceUrlResolver: _resourceUrlResolver,
+              controller: controller,
+              title: _currentStatus?.entry?.name ?? context.l10n.unknownVideo,
+              danmakuController: _danmakuController,
+              subtitles: _currentStatus?.entry?.subtitles,
+              playbackResourceIdentity:
+                  _currentStatus?.entry?.playbackAttachmentIdentity ?? '',
+              resolveSubtitleResource: _resolveSubtitlePlaybackResource,
+              onSubtitleP2pDeactivated: _deactivateP2pSubtitle,
+              isLive: _currentStatus?.entry?.live == true,
+              liveStartedAt: _currentStatus?.entry?.liveStartedAt,
+              onToggleFullScreen: () => Navigator.of(context).pop(),
+              onSync: _handleSync,
+              onPrevious: _canNavigatePlayback
+                  ? () => unawaited(_navigatePlayback(previous: true))
+                  : null,
+              onNext: _canNavigatePlayback
+                  ? () => unawaited(_navigatePlayback(previous: false))
+                  : null,
+              onEnterPictureInPicture: _pictureInPictureAvailable
+                  ? () => unawaited(_enterPictureInPicture())
+                  : null,
+              freeModeEnabled: _playbackModeConfig.freeModeEnabled,
+              onFreeModeChanged: (enabled) =>
+                  unawaited(_setFreeModeEnabled(enabled)),
+              canControlPlayback: _canControlPlaybackState,
+              isPlaybackExpectedToBePlaying: () =>
+                  _currentStatus?.isPlaying == true,
+              onUserPlaybackStateChanged: _canControlPlaybackState
+                  ? _handleUserPlaybackStateChanged
+                  : null,
+              onUserSeek: _canControlPlaybackState ? _handleUserSeek : null,
+              onUserPlaybackSpeedChanged: _canControlPlaybackState
+                  ? _handleUserPlaybackSpeedChanged
+                  : null,
+              diagnosticsProvider: _playbackDiagnosticsContext,
+              loopPlayback:
+                  _roomSettings.autoPlayEnabled &&
+                  _roomSettings.autoPlayMode ==
+                      client_enum.PlayMode.PLAY_MODE_REPEAT_ONE,
+              shufflePlayback:
+                  _roomSettings.autoPlayEnabled &&
+                  _roomSettings.autoPlayMode ==
+                      client_enum.PlayMode.PLAY_MODE_SHUFFLE,
+              canChangePlayMode:
+                  _canManagePlaybackMode && !_playModeUpdateInFlight,
+              onLoopPlaybackChanged: (enabled) => _updateRoomPlaybackMode(
+                enabled
+                    ? client_enum.PlayMode.PLAY_MODE_REPEAT_ONE
+                    : client_enum.PlayMode.PLAY_MODE_SEQUENTIAL,
+              ),
+              onShufflePlaybackChanged: (enabled) => _updateRoomPlaybackMode(
+                enabled
+                    ? client_enum.PlayMode.PLAY_MODE_SHUFFLE
+                    : client_enum.PlayMode.PLAY_MODE_SEQUENTIAL,
+              ),
+              onReloadPlayback: () => unawaited(_reloadCurrentPlaybackUrl()),
+              onSendDanmaku: _sendDanmaku,
+              isFullScreen: true,
+              interactionMode: videoPlayerInteractionModeForPlatform(
+                defaultTargetPlatform,
+              ),
+              diagnosticsBuilder: (_) => _buildPlaybackDiagnosticsBadges(
+                compact: true,
+                includeLatency: true,
+                videoStyle: true,
+              ),
+              extraBottomWidget: _buildPlaybackOptionButton(compact: true),
+            );
+          },
         ),
       ),
     );
@@ -3991,30 +4145,35 @@ class _RoomScreenState extends State<RoomScreen>
   }
 
   Widget _buildTabBar(ThemeData theme) {
+    final visibleTabs = _visibleRoomTabIndexes;
+    if (visibleTabs.isEmpty) return const SizedBox.shrink();
+
     final labels = [
-      context.l10n.chat,
-      context.l10n.playlist,
-      context.l10n.members,
-      if (_showRealtimeDebugTab) context.l10n.realtime,
+      for (final index in visibleTabs)
+        switch (index) {
+          0 => context.l10n.chat,
+          1 => context.l10n.playlist,
+          2 => context.l10n.members,
+          _ => context.l10n.realtime,
+        },
     ];
     final icons = [
-      Icons.chat_bubble_rounded,
-      Icons.playlist_play_rounded,
-      Icons.group_rounded,
-      if (_showRealtimeDebugTab) Icons.bolt_rounded,
+      for (final index in visibleTabs)
+        switch (index) {
+          0 => Icons.chat_bubble_rounded,
+          1 => Icons.playlist_play_rounded,
+          2 => Icons.group_rounded,
+          _ => Icons.bolt_rounded,
+        },
     ];
+    final selectedIndex = visibleTabs.indexOf(_roomTabIndex);
 
     return RoomCollaborationTabBar(
       labels: labels,
       icons: icons,
-      selectedIndex: _roomTabIndex,
-      enabled: [
-        _canViewChatHistory || _canSendChatMessages,
-        _canBrowseLibrary,
-        _canViewMembers,
-        if (_showRealtimeDebugTab) true,
-      ],
-      onSelected: _selectRoomTab,
+      selectedIndex: selectedIndex < 0 ? 0 : selectedIndex,
+      enabled: List.filled(visibleTabs.length, true),
+      onSelected: (index) => _selectRoomTab(visibleTabs[index]),
     );
   }
 
@@ -5786,6 +5945,15 @@ class _RoomScreenState extends State<RoomScreen>
               ),
               const SizedBox(height: 6),
               _buildPlaylistBreadcrumbs(),
+              if (_mediaSupportsSearch || !_isInsideProviderTargetScope) ...[
+                const SizedBox(height: 8),
+                PlaylistSearchField(
+                  key: const Key('playlist-search-field'),
+                  controller: _mediaSearchController,
+                  label: context.l10n.searchMediaOrPlaylist,
+                  onSearch: _submitMediaSearch,
+                ),
+              ],
             ],
           ),
         ),
@@ -6753,9 +6921,11 @@ class _RoomScreenState extends State<RoomScreen>
   }
 
   void _enterPlaylist(RoomMediaEntry playlist) {
+    _invalidateMediaLibraryRequests();
     setState(() {
       _playlistStack.add(playlist);
       _playlistNameStack.add(playlist.name);
+      _mediaSearchController.clear();
       _isLoadingMediaEntries = true;
     });
     _observeCurrentPlaylist();
@@ -6763,9 +6933,11 @@ class _RoomScreenState extends State<RoomScreen>
 
   void _exitPlaylist() {
     if (_playlistStack.isEmpty) return;
+    _invalidateMediaLibraryRequests();
     setState(() {
       _playlistStack.removeLast();
       _playlistNameStack.removeLast();
+      _mediaSearchController.clear();
       _isLoadingMediaEntries = true;
     });
     _observeCurrentPlaylist();
@@ -6775,9 +6947,11 @@ class _RoomScreenState extends State<RoomScreen>
     if (depth < 0 || depth >= _playlistStack.length) {
       if (depth != 0 || _playlistStack.isEmpty) return;
     }
+    _invalidateMediaLibraryRequests();
     setState(() {
       _playlistStack.removeRange(depth, _playlistStack.length);
       _playlistNameStack.removeRange(depth + 1, _playlistNameStack.length);
+      _mediaSearchController.clear();
       _isLoadingMediaEntries = true;
     });
     _observeCurrentPlaylist();
@@ -6795,6 +6969,7 @@ class _RoomScreenState extends State<RoomScreen>
         _realtimeProtocol.encodePlaylistObservation(
           playlistId: parentPlaylist?.playbackPlaylistId ?? '',
           target: parentPlaylist?.playbackTarget,
+          search: _mediaSearchController.text.trim(),
           page: 1,
           pageSize: _pageSize,
         ),
@@ -6812,6 +6987,8 @@ class _RoomScreenState extends State<RoomScreen>
 
   Future<void> _refreshCurrentPlaylist() async {
     if (_isRefreshingMediaEntries) return;
+    _invalidateMediaLibraryRequests();
+    final requestEpoch = _mediaLibraryStateEpoch.capture();
     final playlist = _playlistStack.isEmpty ? null : _playlistStack.last;
     setState(() => _isRefreshingMediaEntries = true);
     try {
@@ -6819,20 +6996,51 @@ class _RoomScreenState extends State<RoomScreen>
         widget.room.roomId,
         playlistId: playlist?.playbackPlaylistId ?? '',
         target: playlist?.playbackTarget,
+        search: _mediaSearchController.text.trim(),
         pageSize: _pageSize,
         refresh: _isInsideProviderTargetScope,
       );
+      if (!mounted || !_mediaLibraryStateEpoch.isCurrent(requestEpoch)) return;
       _applyMediaLibrary(mediaLibrary);
     } catch (error) {
-      if (mounted) {
-        AppNotifications.showError(
-          context,
-          context.l10n.errorMessage('$error'),
-        );
-      }
+      if (!mounted || !_mediaLibraryStateEpoch.isCurrent(requestEpoch)) return;
+      AppNotifications.showError(context, context.l10n.errorMessage('$error'));
     } finally {
-      if (mounted) setState(() => _isRefreshingMediaEntries = false);
+      if (mounted && _mediaLibraryStateEpoch.isCurrent(requestEpoch)) {
+        setState(() => _isRefreshingMediaEntries = false);
+      }
     }
+  }
+
+  void _submitMediaSearch() {
+    _invalidateMediaLibraryRequests();
+    setState(() {
+      _currentPage = 1;
+      _nextCursor = '';
+      _usesCursorPagination = false;
+      _hasMoreMediaEntries = false;
+      _mediaEntries = const [];
+      _isLoadingMediaEntries = true;
+    });
+    _sendRealtimeMessage(
+      _realtimeProtocol.encodePlaylistObservation(
+        playlistId: _playlistStack.isEmpty
+            ? ''
+            : _playlistStack.last.playbackPlaylistId,
+        target: _playlistStack.isEmpty
+            ? null
+            : _playlistStack.last.playbackTarget,
+        page: 1,
+        pageSize: _pageSize,
+        search: _mediaSearchController.text.trim(),
+      ),
+    );
+  }
+
+  void _invalidateMediaLibraryRequests() {
+    _mediaLibraryStateEpoch.advance();
+    _isLoadingMoreMediaEntries = false;
+    _isRefreshingMediaEntries = false;
   }
 
   Future<void> _switchMedia(RoomMediaEntry entry) async {
@@ -7106,6 +7314,7 @@ class _RoomScreenState extends State<RoomScreen>
               roomName: widget.room.roomName,
               creatorId: widget.room.creatorId,
               currentUserId: _currentUser?.id ?? '',
+              isPublic: widget.room.isPublic,
               canViewPlaybackHistory: _canViewPlaybackHistory,
               canNavigatePlayback: _canNavigatePlayback,
               canUseWebRtc: _canUseVoiceChat || _canUseP2pMedia,

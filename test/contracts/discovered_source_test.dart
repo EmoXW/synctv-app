@@ -5,7 +5,7 @@ import 'package:synctv_app/src/generated/proto/providers/common.pb.dart'
 import 'package:synctv_app/src/generated/proto/source_config.pb.dart' as source;
 
 void main() {
-  const only = source.PlaybackProxyMode.PLAYBACK_PROXY_MODE_ONLY;
+  const only = source.PlaybackProxyMode.PLAYBACK_PROXY_MODE_DIRECT_ONLY;
 
   test('applies proxy mode to every supported media provider', () {
     final cases =
@@ -214,6 +214,33 @@ void main() {
       );
     }
   });
+
+  test(
+    'preserves complete dynamic playlist source config when switching mode',
+    () {
+      final original = provider_common.DiscoveredSource(
+        playlist: source.PlaylistSourceConfig(
+          alist: source.AlistPlaylistSourceConfig(
+            serverId: 'alist-main',
+            path: '/library/series',
+            password: 'playlist-password',
+          ),
+        ),
+        providerInstanceName: 'personal-alist',
+      );
+
+      final updated = original.withPlaybackProxyMode(only).requirePlaylist();
+
+      expect(updated.alist.serverId, 'alist-main');
+      expect(updated.alist.path, '/library/series');
+      expect(updated.alist.password, 'playlist-password');
+      expect(updated.alist.proxyMode, only);
+      expect(
+        original.playlist.alist.proxyMode,
+        source.PlaybackProxyMode.PLAYBACK_PROXY_MODE_AUTO,
+      );
+    },
+  );
 
   test('keeps fixed-route providers unchanged', () {
     final original = provider_common.DiscoveredSource(

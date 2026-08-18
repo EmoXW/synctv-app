@@ -648,6 +648,31 @@ class NotificationListSortBy extends $pb.ProtobufEnum {
   const NotificationListSortBy._(super.value, super.name);
 }
 
+class PublishKeyType extends $pb.ProtobufEnum {
+  static const PublishKeyType PUBLISH_KEY_TYPE_UNSPECIFIED =
+      PublishKeyType._(0, _omitEnumNames ? '' : 'PUBLISH_KEY_TYPE_UNSPECIFIED');
+  static const PublishKeyType PUBLISH_KEY_TYPE_SINGLE_USE =
+      PublishKeyType._(1, _omitEnumNames ? '' : 'PUBLISH_KEY_TYPE_SINGLE_USE');
+  static const PublishKeyType PUBLISH_KEY_TYPE_EXPIRING =
+      PublishKeyType._(2, _omitEnumNames ? '' : 'PUBLISH_KEY_TYPE_EXPIRING');
+  static const PublishKeyType PUBLISH_KEY_TYPE_PERMANENT =
+      PublishKeyType._(3, _omitEnumNames ? '' : 'PUBLISH_KEY_TYPE_PERMANENT');
+
+  static const $core.List<PublishKeyType> values = <PublishKeyType>[
+    PUBLISH_KEY_TYPE_UNSPECIFIED,
+    PUBLISH_KEY_TYPE_SINGLE_USE,
+    PUBLISH_KEY_TYPE_EXPIRING,
+    PUBLISH_KEY_TYPE_PERMANENT,
+  ];
+
+  static final $core.List<PublishKeyType?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 3);
+  static PublishKeyType? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const PublishKeyType._(super.value, super.name);
+}
+
 class ItemType extends $pb.ProtobufEnum {
   static const ItemType ITEM_TYPE_UNSPECIFIED =
       ItemType._(0, _omitEnumNames ? '' : 'ITEM_TYPE_UNSPECIFIED');
@@ -824,6 +849,32 @@ class PlaybackContainer extends $pb.ProtobufEnum {
   const PlaybackContainer._(super.value, super.name);
 }
 
+class PlaybackLiveTransport extends $pb.ProtobufEnum {
+  static const PlaybackLiveTransport PLAYBACK_LIVE_TRANSPORT_UNSPECIFIED =
+      PlaybackLiveTransport._(
+          0, _omitEnumNames ? '' : 'PLAYBACK_LIVE_TRANSPORT_UNSPECIFIED');
+  static const PlaybackLiveTransport PLAYBACK_LIVE_TRANSPORT_HLS =
+      PlaybackLiveTransport._(
+          1, _omitEnumNames ? '' : 'PLAYBACK_LIVE_TRANSPORT_HLS');
+  static const PlaybackLiveTransport PLAYBACK_LIVE_TRANSPORT_FLV =
+      PlaybackLiveTransport._(
+          2, _omitEnumNames ? '' : 'PLAYBACK_LIVE_TRANSPORT_FLV');
+
+  static const $core.List<PlaybackLiveTransport> values =
+      <PlaybackLiveTransport>[
+    PLAYBACK_LIVE_TRANSPORT_UNSPECIFIED,
+    PLAYBACK_LIVE_TRANSPORT_HLS,
+    PLAYBACK_LIVE_TRANSPORT_FLV,
+  ];
+
+  static final $core.List<PlaybackLiveTransport?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 2);
+  static PlaybackLiveTransport? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const PlaybackLiveTransport._(super.value, super.name);
+}
+
 class PlaybackAudioCapability extends $pb.ProtobufEnum {
   static const PlaybackAudioCapability PLAYBACK_AUDIO_CAPABILITY_UNSPECIFIED =
       PlaybackAudioCapability._(
@@ -990,6 +1041,32 @@ class TikTokPlaybackKind extends $pb.ProtobufEnum {
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 
   const TikTokPlaybackKind._(super.value, super.name);
+}
+
+class PlaybackDanmakuDelivery extends $pb.ProtobufEnum {
+  static const PlaybackDanmakuDelivery PLAYBACK_DANMAKU_DELIVERY_UNSPECIFIED =
+      PlaybackDanmakuDelivery._(
+          0, _omitEnumNames ? '' : 'PLAYBACK_DANMAKU_DELIVERY_UNSPECIFIED');
+  static const PlaybackDanmakuDelivery PLAYBACK_DANMAKU_DELIVERY_DOCUMENT =
+      PlaybackDanmakuDelivery._(
+          1, _omitEnumNames ? '' : 'PLAYBACK_DANMAKU_DELIVERY_DOCUMENT');
+  static const PlaybackDanmakuDelivery PLAYBACK_DANMAKU_DELIVERY_EVENT_STREAM =
+      PlaybackDanmakuDelivery._(
+          2, _omitEnumNames ? '' : 'PLAYBACK_DANMAKU_DELIVERY_EVENT_STREAM');
+
+  static const $core.List<PlaybackDanmakuDelivery> values =
+      <PlaybackDanmakuDelivery>[
+    PLAYBACK_DANMAKU_DELIVERY_UNSPECIFIED,
+    PLAYBACK_DANMAKU_DELIVERY_DOCUMENT,
+    PLAYBACK_DANMAKU_DELIVERY_EVENT_STREAM,
+  ];
+
+  static final $core.List<PlaybackDanmakuDelivery?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 2);
+  static PlaybackDanmakuDelivery? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const PlaybackDanmakuDelivery._(super.value, super.name);
 }
 
 class ResourceDeliveryMode extends $pb.ProtobufEnum {

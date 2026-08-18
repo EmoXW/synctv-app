@@ -8,6 +8,7 @@ import 'package:synctv_app/core/presentation/widgets/app_form_controls.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media/discovery_browser.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media/provider_account_action.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media/playback_proxy_mode_control.dart';
+import 'package:synctv_app/features/media_library/presentation/add_media/provider_workspace.dart';
 import 'package:synctv_app/src/generated/proto/providers/common.pb.dart'
     as provider_common;
 import 'package:synctv_app/src/generated/proto/source_config.pbenum.dart'
@@ -83,6 +84,9 @@ class _SynologyAddMediaFormState extends State<SynologyAddMediaForm> {
   source_enum.PlaybackProxyMode _proxyMode =
       source_enum.PlaybackProxyMode.PLAYBACK_PROXY_MODE_AUTO;
 
+  provider_common.DiscoveredSource? get _playbackPolicySource =>
+      _selection.entries.firstOrNull?.source ?? _listSource;
+
   @override
   void initState() {
     super.initState();
@@ -136,13 +140,14 @@ class _SynologyAddMediaFormState extends State<SynologyAddMediaForm> {
       );
     }
     final canUseVideo = _bind?.videoStationAvailable ?? false;
-    return Column(
+    final controls = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _buildBindSelector(),
         const SizedBox(height: 10),
         PlaybackProxyModeControl(
           value: _proxyMode,
+          source: _playbackPolicySource,
           onChanged: (value) => setState(() => _proxyMode = value),
         ),
         const SizedBox(height: 10),
@@ -169,6 +174,8 @@ class _SynologyAddMediaFormState extends State<SynologyAddMediaForm> {
                     _page = 1;
                     _searchController.clear();
                     _tvShow = null;
+                    _listSource = null;
+                    _selection.clear();
                   });
                   _load();
                 },
@@ -197,7 +204,10 @@ class _SynologyAddMediaFormState extends State<SynologyAddMediaForm> {
           _buildFileLocationBar()
         else
           _buildVideoFilters(),
-        const SizedBox(height: 8),
+      ],
+    );
+    final results = Column(
+      children: [
         Expanded(
           child: _loading
               ? const AppLoadingIndicator()
@@ -209,6 +219,7 @@ class _SynologyAddMediaFormState extends State<SynologyAddMediaForm> {
         _buildPagination(),
       ],
     );
+    return ProviderWorkspace(controls: controls, results: results);
   }
 
   Widget _buildBindSelector() {
@@ -233,6 +244,7 @@ class _SynologyAddMediaFormState extends State<SynologyAddMediaForm> {
           _files = const [];
           _videos = const [];
           _listSource = null;
+          _selection.clear();
         });
         _load();
       },
@@ -383,6 +395,7 @@ class _SynologyAddMediaFormState extends State<SynologyAddMediaForm> {
     return DiscoveryBrowser(
       selectionController: _selection,
       selectionScope: _bind?.id,
+      onSelectionChanged: () => setState(() {}),
       items: [
         for (final item in _files)
           DiscoveryBrowserEntry(
@@ -421,6 +434,7 @@ class _SynologyAddMediaFormState extends State<SynologyAddMediaForm> {
     return DiscoveryBrowser(
       selectionController: _selection,
       selectionScope: _bind?.id,
+      onSelectionChanged: () => setState(() {}),
       items: [
         for (final item in _videos)
           DiscoveryBrowserEntry(
@@ -495,6 +509,7 @@ class _SynologyAddMediaFormState extends State<SynologyAddMediaForm> {
     setState(() {
       _loading = true;
       _listSource = null;
+      _selection.clear();
     });
     try {
       final page =
@@ -533,6 +548,7 @@ class _SynologyAddMediaFormState extends State<SynologyAddMediaForm> {
       setState(() {
         _loading = true;
         _listSource = null;
+        _selection.clear();
       });
       try {
         final libraries =
@@ -562,6 +578,7 @@ class _SynologyAddMediaFormState extends State<SynologyAddMediaForm> {
     setState(() {
       _loading = true;
       _listSource = null;
+      _selection.clear();
     });
     try {
       final collection = _tvShow == null
@@ -634,7 +651,7 @@ class _SynologyAddMediaFormState extends State<SynologyAddMediaForm> {
     await providerGateway.addDiscoveredSource(
       widget.roomId,
       playlistId: widget.playlistId,
-      source: _listSource!,
+      source: _listSource!.withPlaybackProxyMode(_proxyMode),
     );
   });
 

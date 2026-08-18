@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:video_player/video_player.dart';
 import 'package:synctv_app/features/room/application/danmaku_source.dart';
 import 'package:synctv_app/features/room/data/http_danmaku_source.dart';
 import 'package:synctv_app/contracts/synctv_models.dart';
@@ -12,6 +14,7 @@ final class _ControlledDanmakuSource implements DanmakuSource {
   final documents = <Uri, Completer<String?>>{};
   final documentHeaders = <Uri, Map<String, String>>{};
   final eventStreams = <Uri>[];
+  final eventHeaders = <Map<String, String>>[];
 
   @override
   Future<String?> loadDocument(
@@ -28,8 +31,25 @@ final class _ControlledDanmakuSource implements DanmakuSource {
     Map<String, String> headers = const {},
   }) {
     eventStreams.add(uri);
+    eventHeaders.add(Map<String, String>.from(headers));
     return const Stream.empty();
   }
+}
+
+final class _EventDanmakuSource implements DanmakuSource {
+  final events = StreamController<String>();
+
+  @override
+  Future<String?> loadDocument(
+    Uri uri, {
+    Map<String, String> headers = const {},
+  }) async => null;
+
+  @override
+  Stream<String> openEventStream(
+    Uri uri, {
+    Map<String, String> headers = const {},
+  }) => events.stream;
 }
 
 void main() {
@@ -204,6 +224,50 @@ void main() {
     await _waitFor(() => controller.items.singleOrNull?.text == 'origin');
   });
 
+  test('loads labelled and unlabelled compressed danmaku documents', () async {
+    const document = '<i><d p="1,1,25,16777215">compressed</d></i>';
+    final compressedDocuments = <String, List<int>>{
+      '/gzip': gzip.encode(utf8.encode(document)),
+      '/zlib': ZLibEncoder().convert(utf8.encode(document)),
+      '/raw-deflate': ZLibEncoder(raw: true).convert(utf8.encode(document)),
+      '/unlabelled-raw-deflate': ZLibEncoder(
+        raw: true,
+      ).convert(utf8.encode(document)),
+    };
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final serverSubscription = server.listen((request) async {
+      request.response.headers.set(
+        HttpHeaders.contentTypeHeader,
+        'text/xml; charset=utf-8',
+      );
+      final contentEncoding = switch (request.uri.path) {
+        '/gzip' => 'gzip',
+        '/unlabelled-raw-deflate' => null,
+        _ => 'deflate',
+      };
+      if (contentEncoding != null) {
+        request.response.headers.set(
+          HttpHeaders.contentEncodingHeader,
+          contentEncoding,
+        );
+      }
+      request.response.add(compressedDocuments[request.uri.path]!);
+      await request.response.close();
+    });
+    addTearDown(() async {
+      await serverSubscription.cancel();
+      await server.close(force: true);
+    });
+
+    for (final path in compressedDocuments.keys) {
+      final result = await const HttpDanmakuSource().loadDocument(
+        Uri.parse('http://127.0.0.1:${server.port}$path'),
+      );
+
+      expect(result, document);
+    }
+  });
+
   test('real-time danmaku bypasses static P2P localization', () async {
     final source = _ControlledDanmakuSource();
     final controller = DanmakuController(source);
@@ -222,6 +286,63 @@ void main() {
     expect(localizedCalls, 0);
     expect(source.eventStreams, [
       Uri.parse('https://origin.example/live-danmaku'),
+    ]);
+  });
+
+  test('Bilibili live SSE message events become danmaku', () async {
+    final source = _EventDanmakuSource();
+    final controller = DanmakuController(source);
+    final videoController =
+        VideoPlayerController.networkUrl(
+            Uri.parse('https://example.com/live.m3u8'),
+          )
+          ..value = const VideoPlayerValue(
+            duration: Duration.zero,
+            isInitialized: true,
+            position: Duration(seconds: 12),
+          );
+    addTearDown(() async {
+      controller.dispose();
+      await source.events.close();
+      await videoController.dispose();
+    });
+
+    controller.updateConfig(
+      streamDanmakuUrl: 'https://example.com/bilibili-live-danmaku',
+      controller: videoController,
+    );
+    await Future<void>.delayed(Duration.zero);
+    source.events.add('{"message":"Bilibili chat"}');
+
+    await _waitFor(
+      () => controller.items.singleOrNull?.text == 'Bilibili chat',
+    );
+    expect(controller.items.single.startTime, const Duration(seconds: 12));
+  });
+
+  test('updated stream credentials reconnect the SSE source', () async {
+    final source = _ControlledDanmakuSource();
+    final controller = DanmakuController(source);
+    addTearDown(controller.dispose);
+
+    const url =
+        'https://synctv.example/api/playback-providers/room/bilibili/live-danmaku/media';
+    controller.updateConfig(
+      streamDanmakuUrl: url,
+      streamDanmakuHeaders: const {'authorization': 'Bearer expired'},
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    controller.updateConfig(
+      streamDanmakuUrl: url,
+      streamDanmakuHeaders: const {'authorization': 'Bearer refreshed'},
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(source.eventStreams, [Uri.parse(url), Uri.parse(url)]);
+    expect(source.eventHeaders, const [
+      {'authorization': 'Bearer expired'},
+      {'authorization': 'Bearer refreshed'},
     ]);
   });
 
@@ -303,6 +424,40 @@ void main() {
 
     expect(requestCount, 1);
   });
+
+  test(
+    'a forbidden SSE stream stops without refreshing or reconnecting',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      var requestCount = 0;
+      var accessRefreshCount = 0;
+      final serverSubscription = server.listen((request) async {
+        requestCount++;
+        request.response.statusCode = HttpStatus.forbidden;
+        await request.response.close();
+      });
+      final controller = DanmakuController(
+        const HttpDanmakuSource(),
+        onStreamAccessExpired: () {
+          accessRefreshCount++;
+        },
+      );
+      addTearDown(() async {
+        controller.dispose();
+        await serverSubscription.cancel();
+        await server.close(force: true);
+      });
+
+      controller.updateConfig(
+        streamDanmakuUrl: 'http://127.0.0.1:${server.port}/forbidden',
+      );
+      await _waitFor(() => requestCount == 1);
+      await Future<void>.delayed(const Duration(milliseconds: 3500));
+
+      expect(accessRefreshCount, 0);
+      expect(requestCount, 1);
+    },
+  );
 }
 
 Future<void> _waitFor(bool Function() predicate) async {

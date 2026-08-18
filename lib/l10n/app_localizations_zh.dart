@@ -362,6 +362,24 @@ class AppLocalizationsZh extends AppLocalizations {
   String get accessMethod => '访问方式';
 
   @override
+  String get roomVisibility => '房间可见性';
+
+  @override
+  String get publicRoomVisibilityDescription => '显示在公开列表中；开启访客加入后，匿名访客可访问';
+
+  @override
+  String get privateRoomVisibilityDescription => '不显示在公开列表中，匿名访客无法访问';
+
+  @override
+  String get passwordProtection => '密码保护';
+
+  @override
+  String get noRoomPassword => '无密码';
+
+  @override
+  String get noRoomPasswordJoinHint => '符合条件的成员无需密码即可加入';
+
+  @override
   String get serverRequiresPassword => '服务器要求设置密码';
 
   @override
@@ -401,7 +419,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get publicRoomAccessHint => '公开房间可被允许访问的成员加入';
 
   @override
-  String get createRoomSubtitle => '设置房间名称、简介和访问方式';
+  String get privateRoomAccessHint => '此房间不会显示在公开列表中，匿名访客无法访问';
+
+  @override
+  String get createRoomSubtitle => '设置房间名称、可见性和密码保护';
 
   @override
   String get publicRoom => '公开房间';
@@ -1050,7 +1071,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get disableSubtitles => '关闭字幕';
 
   @override
-  String get danmaku => '弹幕数';
+  String get danmaku => '弹幕';
 
   @override
   String get danmakuHint => '发个弹幕见证当下...';
@@ -1078,6 +1099,72 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get enableDanmaku => '开启弹幕';
+
+  @override
+  String get overlaySettings => '字幕与弹幕设置';
+
+  @override
+  String get subtitleSettings => '字幕设置';
+
+  @override
+  String get danmakuSettings => '弹幕设置';
+
+  @override
+  String get subtitleStyle => '字幕样式';
+
+  @override
+  String get subtitleSize => '字幕大小';
+
+  @override
+  String get subtitleOpacity => '字幕透明度';
+
+  @override
+  String get subtitleBackground => '字幕背景';
+
+  @override
+  String get subtitlePosition => '字幕位置';
+
+  @override
+  String get subtitleColor => '字幕颜色';
+
+  @override
+  String get subtitleBackgroundColor => '字幕背景颜色';
+
+  @override
+  String get subtitleOutline => '字幕描边';
+
+  @override
+  String get danmakuStyle => '弹幕样式';
+
+  @override
+  String get danmakuSize => '弹幕大小';
+
+  @override
+  String get danmakuOpacity => '弹幕透明度';
+
+  @override
+  String get danmakuSpeed => '弹幕速度';
+
+  @override
+  String get danmakuArea => '弹幕区域';
+
+  @override
+  String get danmakuOutline => '弹幕描边';
+
+  @override
+  String get danmakuMassiveMode => '海量弹幕';
+
+  @override
+  String get danmakuTop => '顶部弹幕';
+
+  @override
+  String get danmakuBottom => '底部弹幕';
+
+  @override
+  String get danmakuScroll => '滚动弹幕';
+
+  @override
+  String get resetOverlaySettings => '恢复默认样式';
 
   @override
   String get reload => '重新加载';
@@ -1290,6 +1377,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get playbackProxyOnly => '仅代理';
 
   @override
+  String get playbackProxyDirectPrefer => '优先直连';
+
+  @override
+  String get playbackProxyDirectOnly => '仅直连';
+
+  @override
   String get playbackProxyAutoDescription => '沿用媒体源的默认播放线路';
 
   @override
@@ -1299,8 +1392,46 @@ class AppLocalizationsZh extends AppLocalizations {
   String get playbackProxyOnlyDescription => '仅保留可由 SyncTV 服务端代理的播放线路';
 
   @override
+  String get playbackProxyDirectPreferDescription => '同时保留直连与代理线路，默认使用直连';
+
+  @override
+  String get playbackProxyDirectOnlyDescription => '仅保留直连播放线路';
+
+  @override
   String get playbackProxyDirectRisk =>
       '直连播放可能向房间成员暴露上游地址、签名链接、Token、Cookie 或授权请求头。请仅在可信房间和受控网络中启用。';
+
+  @override
+  String playbackProxyAutoEffective(
+    Object mode,
+    Object reason,
+    Object variant,
+  ) {
+    return '$variant：$mode（$reason）';
+  }
+
+  @override
+  String get playbackProxyReasonPublicResource => '公开资源';
+
+  @override
+  String get playbackProxyReasonRequestCredentials => '请求需要认证信息';
+
+  @override
+  String get playbackProxyReasonSignedResource => '签名资源';
+
+  @override
+  String get playbackProxyReasonProviderSession => 'provider 会话';
+
+  @override
+  String get playbackProxyReasonServerTransport => '服务端传输';
+
+  @override
+  String playbackProxyPolicyUnavailable(Object error) {
+    return '播放线路策略暂时不可用：$error';
+  }
+
+  @override
+  String get playbackProxyNoCompatibleMode => '此媒体源当前没有兼容的播放线路。';
 
   @override
   String get addToPlaylist => '添加到播放列表';
@@ -1328,6 +1459,27 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get streamMode => '流模式';
+
+  @override
+  String get publishKeyType => '发布密钥类型';
+
+  @override
+  String get singleUsePublishKey => '一次性密钥';
+
+  @override
+  String get expiringPublishKey => '到期前可重复使用';
+
+  @override
+  String get permanentPublishKey => '永不过期';
+
+  @override
+  String get permanentPublishKeyDescription => '持有此密钥的用户可持续发布，直到服务端 JWT 密钥变更。';
+
+  @override
+  String get noExpiration => '永不过期';
+
+  @override
+  String get publishKeyExpirationMustBeFuture => '过期时间必须晚于当前时间。';
 
   @override
   String get audioAndVideo => '音频和视频';
@@ -3992,6 +4144,18 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsUpdated => '设置已更新';
+
+  @override
+  String get roomVisibilityUpdated => '房间可见性已更新';
+
+  @override
+  String get makeRoomPrivate => '将房间设为非公开？';
+
+  @override
+  String get makeRoomPrivateConfirmation => '房间将从公开列表中移除，当前匿名访客会断开连接。';
+
+  @override
+  String get makePrivate => '设为非公开';
 
   @override
   String updateFailed(String error) {

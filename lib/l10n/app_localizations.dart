@@ -728,6 +728,42 @@ abstract class AppLocalizations {
   /// **'Access method'**
   String get accessMethod;
 
+  /// No description provided for @roomVisibility.
+  ///
+  /// In en, this message translates to:
+  /// **'Room visibility'**
+  String get roomVisibility;
+
+  /// No description provided for @publicRoomVisibilityDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Listed in discovery; anonymous guests can access when guest joining is enabled'**
+  String get publicRoomVisibilityDescription;
+
+  /// No description provided for @privateRoomVisibilityDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Hidden from discovery and unavailable to anonymous guests'**
+  String get privateRoomVisibilityDescription;
+
+  /// No description provided for @passwordProtection.
+  ///
+  /// In en, this message translates to:
+  /// **'Password protection'**
+  String get passwordProtection;
+
+  /// No description provided for @noRoomPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'No password'**
+  String get noRoomPassword;
+
+  /// No description provided for @noRoomPasswordJoinHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Eligible members can join without a password'**
+  String get noRoomPasswordJoinHint;
+
   /// No description provided for @serverRequiresPassword.
   ///
   /// In en, this message translates to:
@@ -806,10 +842,16 @@ abstract class AppLocalizations {
   /// **'Eligible members can join a public room'**
   String get publicRoomAccessHint;
 
+  /// No description provided for @privateRoomAccessHint.
+  ///
+  /// In en, this message translates to:
+  /// **'This room is hidden from discovery and unavailable to anonymous guests'**
+  String get privateRoomAccessHint;
+
   /// No description provided for @createRoomSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Set the room name, description, and access method'**
+  /// **'Set the room name, visibility, and password protection'**
   String get createRoomSubtitle;
 
   /// No description provided for @publicRoom.
@@ -2054,6 +2096,138 @@ abstract class AppLocalizations {
   /// **'Turn on danmaku'**
   String get enableDanmaku;
 
+  /// No description provided for @overlaySettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle and danmaku settings'**
+  String get overlaySettings;
+
+  /// No description provided for @subtitleSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle settings'**
+  String get subtitleSettings;
+
+  /// No description provided for @danmakuSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Danmaku settings'**
+  String get danmakuSettings;
+
+  /// No description provided for @subtitleStyle.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle style'**
+  String get subtitleStyle;
+
+  /// No description provided for @subtitleSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle size'**
+  String get subtitleSize;
+
+  /// No description provided for @subtitleOpacity.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle opacity'**
+  String get subtitleOpacity;
+
+  /// No description provided for @subtitleBackground.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle background'**
+  String get subtitleBackground;
+
+  /// No description provided for @subtitlePosition.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle position'**
+  String get subtitlePosition;
+
+  /// No description provided for @subtitleColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle color'**
+  String get subtitleColor;
+
+  /// No description provided for @subtitleBackgroundColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle background color'**
+  String get subtitleBackgroundColor;
+
+  /// No description provided for @subtitleOutline.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle outline'**
+  String get subtitleOutline;
+
+  /// No description provided for @danmakuStyle.
+  ///
+  /// In en, this message translates to:
+  /// **'Danmaku style'**
+  String get danmakuStyle;
+
+  /// No description provided for @danmakuSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Danmaku size'**
+  String get danmakuSize;
+
+  /// No description provided for @danmakuOpacity.
+  ///
+  /// In en, this message translates to:
+  /// **'Danmaku opacity'**
+  String get danmakuOpacity;
+
+  /// No description provided for @danmakuSpeed.
+  ///
+  /// In en, this message translates to:
+  /// **'Danmaku speed'**
+  String get danmakuSpeed;
+
+  /// No description provided for @danmakuArea.
+  ///
+  /// In en, this message translates to:
+  /// **'Danmaku area'**
+  String get danmakuArea;
+
+  /// No description provided for @danmakuOutline.
+  ///
+  /// In en, this message translates to:
+  /// **'Danmaku outline'**
+  String get danmakuOutline;
+
+  /// No description provided for @danmakuMassiveMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Massive danmaku'**
+  String get danmakuMassiveMode;
+
+  /// No description provided for @danmakuTop.
+  ///
+  /// In en, this message translates to:
+  /// **'Top danmaku'**
+  String get danmakuTop;
+
+  /// No description provided for @danmakuBottom.
+  ///
+  /// In en, this message translates to:
+  /// **'Bottom danmaku'**
+  String get danmakuBottom;
+
+  /// No description provided for @danmakuScroll.
+  ///
+  /// In en, this message translates to:
+  /// **'Scrolling danmaku'**
+  String get danmakuScroll;
+
+  /// No description provided for @resetOverlaySettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset overlay style'**
+  String get resetOverlaySettings;
+
   /// No description provided for @reload.
   ///
   /// In en, this message translates to:
@@ -2438,6 +2612,18 @@ abstract class AppLocalizations {
   /// **'Proxy only'**
   String get playbackProxyOnly;
 
+  /// No description provided for @playbackProxyDirectPrefer.
+  ///
+  /// In en, this message translates to:
+  /// **'Prefer direct'**
+  String get playbackProxyDirectPrefer;
+
+  /// No description provided for @playbackProxyDirectOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Direct only'**
+  String get playbackProxyDirectOnly;
+
   /// No description provided for @playbackProxyAutoDescription.
   ///
   /// In en, this message translates to:
@@ -2456,11 +2642,71 @@ abstract class AppLocalizations {
   /// **'Keep routes that the SyncTV server can proxy'**
   String get playbackProxyOnlyDescription;
 
+  /// No description provided for @playbackProxyDirectPreferDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep direct and proxy routes, selecting direct by default'**
+  String get playbackProxyDirectPreferDescription;
+
+  /// No description provided for @playbackProxyDirectOnlyDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep direct playback routes only'**
+  String get playbackProxyDirectOnlyDescription;
+
   /// No description provided for @playbackProxyDirectRisk.
   ///
   /// In en, this message translates to:
   /// **'Direct playback can expose upstream URLs, signed links, tokens, cookies, or authorization headers to room members. Use it only in a trusted room and network.'**
   String get playbackProxyDirectRisk;
+
+  /// No description provided for @playbackProxyAutoEffective.
+  ///
+  /// In en, this message translates to:
+  /// **'{variant}: {mode} ({reason})'**
+  String playbackProxyAutoEffective(Object mode, Object reason, Object variant);
+
+  /// No description provided for @playbackProxyReasonPublicResource.
+  ///
+  /// In en, this message translates to:
+  /// **'public resource'**
+  String get playbackProxyReasonPublicResource;
+
+  /// No description provided for @playbackProxyReasonRequestCredentials.
+  ///
+  /// In en, this message translates to:
+  /// **'request credentials'**
+  String get playbackProxyReasonRequestCredentials;
+
+  /// No description provided for @playbackProxyReasonSignedResource.
+  ///
+  /// In en, this message translates to:
+  /// **'signed resource'**
+  String get playbackProxyReasonSignedResource;
+
+  /// No description provided for @playbackProxyReasonProviderSession.
+  ///
+  /// In en, this message translates to:
+  /// **'provider session'**
+  String get playbackProxyReasonProviderSession;
+
+  /// No description provided for @playbackProxyReasonServerTransport.
+  ///
+  /// In en, this message translates to:
+  /// **'server transport'**
+  String get playbackProxyReasonServerTransport;
+
+  /// No description provided for @playbackProxyPolicyUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback route policy is unavailable: {error}'**
+  String playbackProxyPolicyUnavailable(Object error);
+
+  /// No description provided for @playbackProxyNoCompatibleMode.
+  ///
+  /// In en, this message translates to:
+  /// **'No compatible playback route is available for this media source.'**
+  String get playbackProxyNoCompatibleMode;
 
   /// No description provided for @addToPlaylist.
   ///
@@ -2515,6 +2761,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Stream mode'**
   String get streamMode;
+
+  /// No description provided for @publishKeyType.
+  ///
+  /// In en, this message translates to:
+  /// **'Publish key type'**
+  String get publishKeyType;
+
+  /// No description provided for @singleUsePublishKey.
+  ///
+  /// In en, this message translates to:
+  /// **'One-time key'**
+  String get singleUsePublishKey;
+
+  /// No description provided for @expiringPublishKey.
+  ///
+  /// In en, this message translates to:
+  /// **'Reusable until expiration'**
+  String get expiringPublishKey;
+
+  /// No description provided for @permanentPublishKey.
+  ///
+  /// In en, this message translates to:
+  /// **'Never expires'**
+  String get permanentPublishKey;
+
+  /// No description provided for @permanentPublishKeyDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Anyone with this key can publish until the server JWT secret changes.'**
+  String get permanentPublishKeyDescription;
+
+  /// No description provided for @noExpiration.
+  ///
+  /// In en, this message translates to:
+  /// **'Never expires'**
+  String get noExpiration;
+
+  /// No description provided for @publishKeyExpirationMustBeFuture.
+  ///
+  /// In en, this message translates to:
+  /// **'Expiration time must be in the future.'**
+  String get publishKeyExpirationMustBeFuture;
 
   /// No description provided for @audioAndVideo.
   ///
@@ -7309,6 +7597,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Settings updated'**
   String get settingsUpdated;
+
+  /// No description provided for @roomVisibilityUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'Room visibility updated'**
+  String get roomVisibilityUpdated;
+
+  /// No description provided for @makeRoomPrivate.
+  ///
+  /// In en, this message translates to:
+  /// **'Make room private?'**
+  String get makeRoomPrivate;
+
+  /// No description provided for @makeRoomPrivateConfirmation.
+  ///
+  /// In en, this message translates to:
+  /// **'The room will be removed from discovery and current anonymous guests will be disconnected.'**
+  String get makeRoomPrivateConfirmation;
+
+  /// No description provided for @makePrivate.
+  ///
+  /// In en, this message translates to:
+  /// **'Make private'**
+  String get makePrivate;
 
   /// No description provided for @updateFailed.
   ///

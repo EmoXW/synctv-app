@@ -57,6 +57,7 @@ abstract interface class MediaLibraryGateway {
     String playlistId, {
     required String name,
     String? description,
+    source.PlaylistSourceConfig? sourceConfig,
   });
   Future<RoomPlaylistItem> updatePlaylistCover(
     String roomId,
@@ -80,6 +81,7 @@ abstract interface class MediaLibraryGateway {
     String mediaId, {
     required String name,
     String? description,
+    source_enum.PlaybackProxyMode? playbackProxyMode,
   });
   Future<RoomMediaItem> updateVideoCover(
     String roomId,

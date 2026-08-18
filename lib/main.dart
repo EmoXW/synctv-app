@@ -2,7 +2,6 @@ import 'package:accessibility_tools/accessibility_tools.dart';
 import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:forui/forui.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 import 'package:synctv_app/l10n/l10n.dart';
 import 'package:synctv_app/features/app_shell/presentation/app_shell.dart';
@@ -22,12 +21,14 @@ import 'package:synctv_app/features/room/data/synctv_room_chat_gateway.dart';
 import 'package:synctv_app/features/room/data/synctv_room_playback_gateway.dart';
 import 'package:synctv_app/features/room/application/playback_mode_preferences_controller.dart';
 import 'package:synctv_app/features/room/application/player_volume_preferences_controller.dart';
+import 'package:synctv_app/features/room/application/playback_overlay_preferences_controller.dart';
 import 'package:synctv_app/features/room/application/realtime_event_log_preferences_controller.dart';
 import 'package:synctv_app/features/room/data/shared_preferences_realtime_event_log_store.dart';
 import 'package:synctv_app/features/room/data/protobuf_room_realtime_protocol.dart';
 import 'package:synctv_app/features/room/data/room_realtime_connection.dart';
 import 'package:synctv_app/features/room/data/shared_preferences_playback_mode_store.dart';
 import 'package:synctv_app/features/room/data/shared_preferences_player_volume_store.dart';
+import 'package:synctv_app/features/room/data/shared_preferences_playback_overlay_store.dart';
 import 'package:synctv_app/features/room/data/synctv_room_session_gateway.dart';
 import 'package:synctv_app/features/room/data/synctv_room_management_gateway.dart';
 import 'package:synctv_app/features/app_shell/data/synctv_resource_url_resolver.dart';
@@ -71,6 +72,10 @@ void main(List<String> args) async {
     store: const SharedPreferencesPlayerVolumeStore(),
   );
   await playerVolumePreferences.load();
+  final playbackOverlayPreferences = PlaybackOverlayPreferencesController(
+    store: const SharedPreferencesPlaybackOverlayStore(),
+  );
+  await playbackOverlayPreferences.load();
   final realtimeEventLogPreferences = RealtimeEventLogPreferencesController(
     store: const SharedPreferencesRealtimeEventLogStore(),
   );
@@ -132,6 +137,7 @@ void main(List<String> args) async {
     subtitleSource: const HttpSubtitleSource(),
     pictureInPicture: PictureInPictureService.instance,
     playerVolumePreferences: playerVolumePreferences,
+    playbackOverlayPreferences: playbackOverlayPreferences,
     realtimeEventLogPreferences: realtimeEventLogPreferences,
     roomRealtimeChannelFactory: const IoRoomRealtimeChannelFactory(
       sessionGateway: roomSessionGateway,
@@ -170,7 +176,6 @@ class MyApp extends StatelessWidget {
         supportedLocales: AppLocalizations.supportedLocales,
         localizationsDelegates: const [
           ...AppLocalizations.localizationsDelegates,
-          FLocalizations.delegate,
         ],
         builder: (context, child) {
           final mediaQueryData = MediaQuery.of(context);
@@ -180,9 +185,6 @@ class MyApp extends StatelessWidget {
               maxScaleFactor: 1.3,
             ),
           );
-          final foruiTheme = Theme.of(context).brightness == Brightness.dark
-              ? FTheme.neutral.dark.desktop
-              : FTheme.neutral.light.desktop;
           Widget appChild = MediaQuery(data: newMediaQueryData, child: child!);
           appChild = ResponsiveBreakpoints.builder(
             breakpoints: AppBreakpoints.values,
@@ -196,9 +198,7 @@ class MyApp extends StatelessWidget {
             );
           }
 
-          return dependencies.scope(
-            child: FTheme(data: foruiTheme, child: appChild),
-          );
+          return dependencies.scope(child: appChild);
         },
         home: AppShell(dependencies: dependencies.appShell),
       ),

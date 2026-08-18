@@ -379,6 +379,27 @@ class AppLocalizationsEn extends AppLocalizations {
   String get accessMethod => 'Access method';
 
   @override
+  String get roomVisibility => 'Room visibility';
+
+  @override
+  String get publicRoomVisibilityDescription =>
+      'Listed in discovery; anonymous guests can access when guest joining is enabled';
+
+  @override
+  String get privateRoomVisibilityDescription =>
+      'Hidden from discovery and unavailable to anonymous guests';
+
+  @override
+  String get passwordProtection => 'Password protection';
+
+  @override
+  String get noRoomPassword => 'No password';
+
+  @override
+  String get noRoomPasswordJoinHint =>
+      'Eligible members can join without a password';
+
+  @override
   String get serverRequiresPassword => 'The server requires a password';
 
   @override
@@ -421,8 +442,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get publicRoomAccessHint => 'Eligible members can join a public room';
 
   @override
+  String get privateRoomAccessHint =>
+      'This room is hidden from discovery and unavailable to anonymous guests';
+
+  @override
   String get createRoomSubtitle =>
-      'Set the room name, description, and access method';
+      'Set the room name, visibility, and password protection';
 
   @override
   String get publicRoom => 'Public room';
@@ -1174,6 +1199,72 @@ class AppLocalizationsEn extends AppLocalizations {
   String get enableDanmaku => 'Turn on danmaku';
 
   @override
+  String get overlaySettings => 'Subtitle and danmaku settings';
+
+  @override
+  String get subtitleSettings => 'Subtitle settings';
+
+  @override
+  String get danmakuSettings => 'Danmaku settings';
+
+  @override
+  String get subtitleStyle => 'Subtitle style';
+
+  @override
+  String get subtitleSize => 'Subtitle size';
+
+  @override
+  String get subtitleOpacity => 'Subtitle opacity';
+
+  @override
+  String get subtitleBackground => 'Subtitle background';
+
+  @override
+  String get subtitlePosition => 'Subtitle position';
+
+  @override
+  String get subtitleColor => 'Subtitle color';
+
+  @override
+  String get subtitleBackgroundColor => 'Subtitle background color';
+
+  @override
+  String get subtitleOutline => 'Subtitle outline';
+
+  @override
+  String get danmakuStyle => 'Danmaku style';
+
+  @override
+  String get danmakuSize => 'Danmaku size';
+
+  @override
+  String get danmakuOpacity => 'Danmaku opacity';
+
+  @override
+  String get danmakuSpeed => 'Danmaku speed';
+
+  @override
+  String get danmakuArea => 'Danmaku area';
+
+  @override
+  String get danmakuOutline => 'Danmaku outline';
+
+  @override
+  String get danmakuMassiveMode => 'Massive danmaku';
+
+  @override
+  String get danmakuTop => 'Top danmaku';
+
+  @override
+  String get danmakuBottom => 'Bottom danmaku';
+
+  @override
+  String get danmakuScroll => 'Scrolling danmaku';
+
+  @override
+  String get resetOverlaySettings => 'Reset overlay style';
+
+  @override
   String get reload => 'Reload';
 
   @override
@@ -1391,6 +1482,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get playbackProxyOnly => 'Proxy only';
 
   @override
+  String get playbackProxyDirectPrefer => 'Prefer direct';
+
+  @override
+  String get playbackProxyDirectOnly => 'Direct only';
+
+  @override
   String get playbackProxyAutoDescription =>
       'Use the media source\'s default playback route';
 
@@ -1403,8 +1500,49 @@ class AppLocalizationsEn extends AppLocalizations {
       'Keep routes that the SyncTV server can proxy';
 
   @override
+  String get playbackProxyDirectPreferDescription =>
+      'Keep direct and proxy routes, selecting direct by default';
+
+  @override
+  String get playbackProxyDirectOnlyDescription =>
+      'Keep direct playback routes only';
+
+  @override
   String get playbackProxyDirectRisk =>
       'Direct playback can expose upstream URLs, signed links, tokens, cookies, or authorization headers to room members. Use it only in a trusted room and network.';
+
+  @override
+  String playbackProxyAutoEffective(
+    Object mode,
+    Object reason,
+    Object variant,
+  ) {
+    return '$variant: $mode ($reason)';
+  }
+
+  @override
+  String get playbackProxyReasonPublicResource => 'public resource';
+
+  @override
+  String get playbackProxyReasonRequestCredentials => 'request credentials';
+
+  @override
+  String get playbackProxyReasonSignedResource => 'signed resource';
+
+  @override
+  String get playbackProxyReasonProviderSession => 'provider session';
+
+  @override
+  String get playbackProxyReasonServerTransport => 'server transport';
+
+  @override
+  String playbackProxyPolicyUnavailable(Object error) {
+    return 'Playback route policy is unavailable: $error';
+  }
+
+  @override
+  String get playbackProxyNoCompatibleMode =>
+      'No compatible playback route is available for this media source.';
 
   @override
   String get addToPlaylist => 'Add to playlist';
@@ -1433,6 +1571,29 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get streamMode => 'Stream mode';
+
+  @override
+  String get publishKeyType => 'Publish key type';
+
+  @override
+  String get singleUsePublishKey => 'One-time key';
+
+  @override
+  String get expiringPublishKey => 'Reusable until expiration';
+
+  @override
+  String get permanentPublishKey => 'Never expires';
+
+  @override
+  String get permanentPublishKeyDescription =>
+      'Anyone with this key can publish until the server JWT secret changes.';
+
+  @override
+  String get noExpiration => 'Never expires';
+
+  @override
+  String get publishKeyExpirationMustBeFuture =>
+      'Expiration time must be in the future.';
 
   @override
   String get audioAndVideo => 'Audio and video';
@@ -4264,6 +4425,19 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsUpdated => 'Settings updated';
+
+  @override
+  String get roomVisibilityUpdated => 'Room visibility updated';
+
+  @override
+  String get makeRoomPrivate => 'Make room private?';
+
+  @override
+  String get makeRoomPrivateConfirmation =>
+      'The room will be removed from discovery and current anonymous guests will be disconnected.';
+
+  @override
+  String get makePrivate => 'Make private';
 
   @override
   String updateFailed(String error) {

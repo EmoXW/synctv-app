@@ -58,7 +58,6 @@ import 'package:synctv_app/src/generated/proto/providers/cloudreve.pb.dart'
 import 'package:synctv_app/src/generated/proto/providers/common.pb.dart'
     as provider_common;
 import 'package:synctv_app/src/generated/proto/providers/emby.pb.dart' as emby;
-import 'package:synctv_app/src/generated/proto/providers/rtmp.pb.dart' as rtmp;
 import 'package:synctv_app/features/room/presentation/playback_danmaku.dart';
 import 'package:synctv_app/features/room/domain/chat_reactions.dart';
 import 'package:synctv_opaque/synctv_opaque.dart' as opaque;
@@ -933,6 +932,9 @@ void main() {
         client.PlaybackContainer.PLAYBACK_CONTAINER_MP4,
         client.PlaybackContainer.PLAYBACK_CONTAINER_MKV,
         client.PlaybackContainer.PLAYBACK_CONTAINER_WEBM,
+      ]);
+      expect(profile.supportedLiveTransports, [
+        client.PlaybackLiveTransport.PLAYBACK_LIVE_TRANSPORT_FLV,
       ]);
       expect(
         profile.audioCapability,
@@ -4430,6 +4432,9 @@ void main() {
                   url: 'http://origin.test/danmaku.xml',
                   headers: const {'User-Agent': 'danmaku-client'}.entries,
                   format: 'xml',
+                  delivery: client
+                      .PlaybackDanmakuDelivery
+                      .PLAYBACK_DANMAKU_DELIVERY_DOCUMENT,
                   expireAt: Int64(1785923100),
                   p2pDelivery: client.P2pResourceDelivery(
                     swarmId: 'sm3_danmaku',
@@ -4440,6 +4445,9 @@ void main() {
                   name: '实时弹幕',
                   url: '/live-danmaku/stream',
                   format: 'synctv-bilibili-live',
+                  delivery: client
+                      .PlaybackDanmakuDelivery
+                      .PLAYBACK_DANMAKU_DELIVERY_EVENT_STREAM,
                   p2pDelivery: client.P2pResourceDelivery(
                     swarmId: 'sm3_invalid_live',
                     swarmTicket: 'invalid-live-ticket',
@@ -4563,12 +4571,18 @@ void main() {
                     url: 'https://origin.test/preferred.xml',
                     headers: const {'X-Danmaku': 'preferred'}.entries,
                     format: 'xml',
+                    delivery: client
+                        .PlaybackDanmakuDelivery
+                        .PLAYBACK_DANMAKU_DELIVERY_DOCUMENT,
                   ),
                   client.PlaybackDanmaku(
                     name: 'Alternate static danmaku',
                     url: 'https://origin.test/alternate.xml',
                     headers: const {'X-Danmaku': 'alternate'}.entries,
                     format: 'xml',
+                    delivery: client
+                        .PlaybackDanmakuDelivery
+                        .PLAYBACK_DANMAKU_DELIVERY_DOCUMENT,
                     p2pDelivery: client.P2pResourceDelivery(
                       swarmId: 'sm3_alternate',
                       swarmTicket: 'alternate-ticket',
@@ -4579,6 +4593,9 @@ void main() {
                     url: '/live-danmaku/med_danmaku',
                     headers: const {'X-Danmaku': 'live'}.entries,
                     format: 'synctv-bilibili-live',
+                    delivery: client
+                        .PlaybackDanmakuDelivery
+                        .PLAYBACK_DANMAKU_DELIVERY_EVENT_STREAM,
                     p2pDelivery: client.P2pResourceDelivery(
                       swarmId: 'sm3_live',
                       swarmTicket: 'live-ticket',
@@ -4662,6 +4679,9 @@ void main() {
                   name: 'XML',
                   url: 'http://origin.test/danmaku.xml',
                   format: 'xml',
+                  delivery: client
+                      .PlaybackDanmakuDelivery
+                      .PLAYBACK_DANMAKU_DELIVERY_DOCUMENT,
                 ),
               ],
             ),
@@ -4673,7 +4693,7 @@ void main() {
                 client.PlaybackMedia(
                   name: 'Live',
                   url:
-                      '/api/playback-providers/bilibili/v1/media-streams/live/0?sig=s&uid=u&rid=r&exp=1',
+                      '/api/playback-providers/r/bilibili/v1/media-streams/live/0?sig=s&uid=u&exp=1',
                   format: 'flv',
                 ),
               ],
@@ -4681,9 +4701,12 @@ void main() {
                 client.PlaybackDanmaku(
                   name: 'Live Danmaku',
                   url:
-                      '/api/playback-providers/bilibili/live-danmaku/med_public',
+                      '/api/playback-providers/r/bilibili/live-danmaku/med_public',
                   headers: const {'X-Live': '1'}.entries,
                   format: 'synctv-bilibili-live',
+                  delivery: client
+                      .PlaybackDanmakuDelivery
+                      .PLAYBACK_DANMAKU_DELIVERY_EVENT_STREAM,
                 ),
               ],
             ),
@@ -4709,20 +4732,66 @@ void main() {
     );
     expect(
       live.url,
-      'https://example.test/api/playback-providers/bilibili/v1/media-streams/live/0?sig=s&uid=u&rid=r&exp=1',
+      'https://example.test/api/playback-providers/r/bilibili/v1/media-streams/live/0?sig=s&uid=u&exp=1',
     );
     expect(live.danmu, isNull);
     expect(
       live.streamDanmu,
-      'https://example.test/api/playback-providers/bilibili/live-danmaku/med_public',
+      'https://example.test/api/playback-providers/r/bilibili/live-danmaku/med_public',
     );
     expect(live.streamDanmuHeaders, {'X-Live': '1'});
     expect(
       live.playbackModes
           .singleWhere((mode) => mode.key == 'bilibili_live')
           .streamDanmu,
-      'https://example.test/api/playback-providers/bilibili/live-danmaku/med_public',
+      'https://example.test/api/playback-providers/r/bilibili/live-danmaku/med_public',
     );
+  });
+
+  test('playback mapping recognizes legacy live danmaku delivery', () {
+    final legacySources = <(String, String)>[
+      ('synctv-bilibili-live', 'https://example.test/bilibili'),
+      ('synctv-twitch-live', 'https://example.test/twitch'),
+      ('synctv-huya-live', 'https://example.test/huya'),
+      ('synctv-douyu-live', 'https://example.test/douyu'),
+      ('synctv-douyin-live', 'https://example.test/douyin'),
+      ('synctv-acfun-live', 'https://example.test/acfun'),
+      ('legacy', 'https://example.test/live-danmaku/stream'),
+    ];
+
+    for (final (format, url) in legacySources) {
+      final entry = RoomMediaEntry.fromPlaybackProto(
+        client.Playback(
+          mediaId: 'med_legacy',
+          name: 'Legacy live danmaku',
+          playbackInfos: [
+            MapEntry(
+              'live',
+              client.PlaybackInfo(
+                medias: [
+                  client.PlaybackMedia(
+                    name: 'Live',
+                    url: 'https://example.test/live.flv',
+                    format: 'flv',
+                  ),
+                ],
+                danmakus: [
+                  client.PlaybackDanmaku(
+                    name: 'Legacy',
+                    url: url,
+                    format: format,
+                  ),
+                ],
+              ),
+            ),
+          ],
+          defaultMode: 'live',
+        ),
+      );
+
+      expect(entry.streamDanmu, url, reason: format);
+      expect(entry.danmu, isNull, reason: format);
+    }
   });
 
   test('playback mapping preserves live proxy HLS and FLV choices', () {
@@ -4740,7 +4809,8 @@ void main() {
               medias: [
                 client.PlaybackMedia(
                   name: 'HLS',
-                  url: '/api/playback-providers/live-proxy/ver_1/hls-playlist',
+                  url:
+                      '/api/playback-providers/room/live-proxy/ver_1/hls-master',
                   format: 'hls',
                 ),
               ],
@@ -4752,7 +4822,8 @@ void main() {
               medias: [
                 client.PlaybackMedia(
                   name: 'FLV',
-                  url: '/api/playback-providers/live-proxy/ver_1/flv-stream',
+                  url:
+                      '/api/playback-providers/room/live-proxy/ver_1/flv-stream',
                   format: 'flv',
                 ),
               ],
@@ -4773,7 +4844,7 @@ void main() {
     expect(entry.type, 'hls');
     expect(
       entry.url,
-      'https://example.test/api/playback-providers/live-proxy/ver_1/hls-playlist',
+      'https://example.test/api/playback-providers/room/live-proxy/ver_1/hls-master',
     );
 
     final flv = entry.selectPlayback(
@@ -4784,7 +4855,7 @@ void main() {
     expect(flv.type, 'flv');
     expect(
       flv.url,
-      'https://example.test/api/playback-providers/live-proxy/ver_1/flv-stream',
+      'https://example.test/api/playback-providers/room/live-proxy/ver_1/flv-stream',
     );
     expect(flv.playbackChoiceLabel, contains('FLV'));
   });
@@ -4817,6 +4888,9 @@ void main() {
                   name: '弹幕',
                   url: '/api/providers/proxy/alist/danmaku.xml',
                   format: 'xml',
+                  delivery: client
+                      .PlaybackDanmakuDelivery
+                      .PLAYBACK_DANMAKU_DELIVERY_DOCUMENT,
                 ),
               ],
             ),
@@ -4997,6 +5071,10 @@ void main() {
       expect(
         requestedUri!.queryParameters,
         containsPair('containers', '1,2,3'),
+      );
+      expect(
+        requestedUri!.queryParameters,
+        containsPair('liveTransports', '2'),
       );
       expect(
         requestedUri!.queryParameters,
@@ -6285,20 +6363,21 @@ void main() {
     }
   });
 
-  test('rtmp provider endpoints use path protobuf parameters', () async {
+  test('room stream endpoints use path protobuf parameters', () async {
     final requests = <http.Request>[];
     final api = SyncTvApiClient(
       baseUrl: 'https://example.test/api',
       session: SyncTvSession()..updateAccountTokens(accessToken: 'token'),
       httpClient: MockClient((request) async {
         requests.add(request);
-        if (request.url.path.contains('/publish-key/')) {
+        if (request.url.path.contains('/publish-key')) {
           return http.Response(
             jsonEncode({
               'publishKey': 'pub_1',
               'rtmpUrl': 'rtmp://example.test/live',
               'streamKey': 'stream_1',
               'expiresAt': '1760000100',
+              'type': 'PUBLISH_KEY_TYPE_SINGLE_USE',
             }),
             200,
             headers: {'content-type': 'application/json'},
@@ -6315,11 +6394,17 @@ void main() {
       }),
     );
 
-    final publish = await api.rtmpProvider.createPublishKey(
-      rtmp.CreatePublishKeyRequest(roomId: 'room_1', mediaId: 'med_1'),
+    final publish = await api.room.createRoomPublishKey(
+      'room_1',
+      client.CreateRoomPublishKeyRequest(
+        mediaId: 'med_1',
+        type: client_enum.PublishKeyType.PUBLISH_KEY_TYPE_SINGLE_USE,
+        expiresAt: Int64(1760000100),
+      ),
     );
-    final info = await api.rtmpProvider.getStreamInfo(
-      rtmp.GetStreamInfoRequest(roomId: 'room_1', mediaId: 'med_1'),
+    final info = await api.room.getRoomStreamInfo(
+      'room_1',
+      client.GetRoomStreamInfoRequest(mediaId: 'med_1'),
     );
 
     expect(publish.publishKey, 'pub_1');
@@ -6328,14 +6413,43 @@ void main() {
     expect(requests.first.method, 'POST');
     expect(
       requests.first.url.path,
-      '/api/providers/rtmp/rooms/room_1/publish-key/med_1',
+      '/api/playback-providers/room_1/rtmp/med_1/publish-key',
     );
-    expect(requests.first.body, isEmpty);
+    expect(jsonDecode(requests.first.body), containsPair('type', 1));
     expect(requests.last.method, 'GET');
-    expect(
-      requests.last.url.path,
-      '/api/providers/rtmp/rooms/room_1/info/med_1',
+    expect(requests.last.url.path, '/api/rooms/room_1/streams/med_1');
+  });
+
+  test('legacy publish key responses default to single-use', () async {
+    final api = SyncTvApiClient(
+      baseUrl: 'https://example.test/api',
+      session: SyncTvSession()..updateAccountTokens(accessToken: 'token'),
+      httpClient: MockClient((request) async {
+        return http.Response(
+          jsonEncode({
+            'publishKey': 'pub_legacy',
+            'rtmpUrl': 'rtmp://example.test/live',
+            'streamKey': 'stream_legacy',
+            'expiresAt': '1760000100',
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
     );
+    final service = SyncTvRoomMediaDomainService(api);
+
+    final publish = await service.createRtmpPublishKeyInfo(
+      'room_1',
+      'med_1',
+      keyType: client_enum.PublishKeyType.PUBLISH_KEY_TYPE_PERMANENT,
+    );
+
+    expect(
+      publish.keyType,
+      client_enum.PublishKeyType.PUBLISH_KEY_TYPE_SINGLE_USE,
+    );
+    expect(publish.expiresAt, 1760000100);
   });
 
   test(
@@ -6610,6 +6724,77 @@ void main() {
     },
   );
 
+  test(
+    'dynamic playlist update sends complete source config replacement',
+    () async {
+      Uri? requestedUri;
+      String? requestMethod;
+      String? requestBody;
+      final api = SyncTvApiClient(
+        baseUrl: 'https://example.test/api',
+        session: SyncTvSession()..updateAccountTokens(accessToken: 'token'),
+        httpClient: MockClient((request) async {
+          requestedUri = request.url;
+          requestMethod = request.method;
+          requestBody = request.body;
+          return http.Response(
+            jsonEncode({
+              'id': 'pl_dynamic',
+              'roomId': 'room_1',
+              'name': 'Updated library',
+              'isDynamic': true,
+              'sourceProvider':
+                  source_enum.SourceProvider.SOURCE_PROVIDER_ALIST.value,
+              'sourceConfig': {
+                'alist': {
+                  'serverId': 'alist-main',
+                  'path': '/library/updated',
+                  'proxyMode': source_config
+                      .PlaybackProxyMode
+                      .PLAYBACK_PROXY_MODE_DIRECT_ONLY
+                      .value,
+                },
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+      final domain = SyncTvRoomMediaDomainService(api);
+
+      await domain.updatePlaylist(
+        'room_1',
+        'pl_dynamic',
+        name: 'Updated library',
+        sourceConfig: source_config.PlaylistSourceConfig(
+          alist: source_config.AlistPlaylistSourceConfig(
+            serverId: 'alist-main',
+            path: '/library/updated',
+            proxyMode:
+                source_config.PlaybackProxyMode.PLAYBACK_PROXY_MODE_DIRECT_ONLY,
+          ),
+        ),
+      );
+
+      expect(requestMethod, 'PATCH');
+      expect(requestedUri!.path, '/api/rooms/room_1/playlists/pl_dynamic');
+      final body = jsonDecode(requestBody!) as Map<String, dynamic>;
+      expect(body['name'], 'Updated library');
+      expect(body['sourceConfig'], {
+        'alist': {
+          'serverId': 'alist-main',
+          'path': '/library/updated',
+          'proxyMode': source_config
+              .PlaybackProxyMode
+              .PLAYBACK_PROXY_MODE_DIRECT_ONLY
+              .value,
+        },
+      });
+      expect(body.containsKey('sourceProvider'), isFalse);
+    },
+  );
+
   test('account closure uses protobuf command endpoint and body', () async {
     Uri? requestedUri;
     String? requestMethod;
@@ -6781,6 +6966,40 @@ void main() {
         'memberRemovedPermissions,guestAddedPermissions,guestRemovedPermissions',
       );
       expect(body.containsKey('roomId'), isFalse);
+    },
+  );
+
+  test(
+    'room visibility update uses its dedicated authenticated endpoint',
+    () async {
+      http.Request? capturedRequest;
+      final api = SyncTvApiClient(
+        baseUrl: 'https://example.test/api',
+        session: SyncTvSession()..updateAccountTokens(accessToken: 'token'),
+        httpClient: MockClient((request) async {
+          capturedRequest = request;
+          return http.Response(
+            jsonEncode({
+              'id': 'room_1',
+              'name': 'Room 1',
+              'createdBy': 'user_1',
+              'isPublic': false,
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+      final service = SyncTvRoomManagementDomainService(api);
+
+      final room = await service.updateRoomVisibility('room_1', false);
+
+      expect(capturedRequest, isNotNull);
+      expect(capturedRequest!.method, 'PATCH');
+      expect(capturedRequest!.url.path, '/api/rooms/room_1/visibility');
+      expect(capturedRequest!.headers['authorization'], 'Bearer token');
+      expect(jsonDecode(capturedRequest!.body), {'isPublic': false});
+      expect(room.isPublic, isFalse);
     },
   );
 
@@ -6965,6 +7184,11 @@ void main() {
         false,
       );
       await SyncTvService.runtimeUpdateSettingInSection(
+        'roomCreation',
+        'passwordPolicy',
+        'ROOM_PASSWORD_POLICY_FORBIDDEN',
+      );
+      await SyncTvService.runtimeUpdateSettingInSection(
         'cors',
         'allowedOrigins',
         ['https://app.example.test'],
@@ -7025,6 +7249,12 @@ void main() {
           'roomCreation': {'enabled': false},
         },
         'updateMask': 'roomCreation.enabled',
+      },
+      {
+        'settings': {
+          'roomCreation': {'passwordPolicy': 3},
+        },
+        'updateMask': 'roomCreation.passwordPolicy',
       },
       {
         'settings': {
@@ -10563,7 +10793,7 @@ void main() {
   });
 
   test(
-    'create room sends current protobuf body and maps review response',
+    'create room sends visibility and defaults a missing response field to public',
     () async {
       http.Request? capturedRequest;
       const roomCredential = 'not-real-room-credential';
@@ -10600,6 +10830,7 @@ void main() {
         password: roomCredential,
         categoryId: 'roomcat_anime',
         labelIds: const ['roomlbl_weekly'],
+        isPublic: false,
       );
 
       expect(capturedRequest, isNotNull);
@@ -10609,6 +10840,7 @@ void main() {
         'password': roomCredential,
         'categoryId': 'roomcat_anime',
         'labelIds': ['roomlbl_weekly'],
+        'isPublic': false,
       });
       expect(room.roomId, 'room_pending');
       expect(room.status, common.RoomStatus.ROOM_STATUS_UNSPECIFIED);
@@ -10624,6 +10856,7 @@ void main() {
         client_enum.MyRoomRelation.MY_ROOM_RELATION_CREATED,
       );
       expect(room.needPassword, isFalse);
+      expect(room.isPublic, isTrue);
     },
   );
 

@@ -3,7 +3,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:forui/forui.dart';
 import 'package:synctv_app/l10n/l10n.dart';
 import 'package:synctv_app/core/presentation/widgets/app_responsive_layout.dart';
 import 'package:synctv_app/core/presentation/widgets/app_form_controls.dart';
@@ -696,7 +695,7 @@ void main() {
         ),
       );
 
-      expect(find.byType(FButton), findsOneWidget);
+      expect(find.byType(FilledButton), findsOneWidget);
       await tester.tap(find.text('保存'));
       await tester.pump(const Duration(milliseconds: 150));
       expect(presses, 1);
@@ -713,7 +712,7 @@ void main() {
         ),
       );
 
-      expect(find.byType(FButton), findsOneWidget);
+      expect(find.byType(FilledButton), findsOneWidget);
       await tester.tap(find.text('删除'));
       await tester.pump(const Duration(milliseconds: 150));
       expect(presses, 2);
@@ -728,7 +727,7 @@ void main() {
         ),
       );
 
-      expect(find.byType(FCircularProgress), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
       await tester.tap(find.text('保存'));
       await tester.pump(const Duration(milliseconds: 150));
       expect(presses, 2);
@@ -751,7 +750,7 @@ void main() {
       ),
     );
 
-    expect(find.byType(FButton), findsOneWidget);
+    expect(find.byType(IconButton), findsOneWidget);
     expect(_byTooltip('刷新'), findsOneWidget);
     await tester.tap(_byTooltip('刷新'));
     await tester.pump(const Duration(milliseconds: 150));
@@ -768,7 +767,7 @@ void main() {
       ),
     );
 
-    expect(find.byType(FCircularProgress), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
     await tester.tap(_byTooltip('刷新'));
     await tester.pump(const Duration(milliseconds: 150));
     expect(presses, 1);
@@ -937,7 +936,7 @@ void main() {
         ),
       );
 
-      expect(find.byType(FCircularProgress), findsNWidgets(2));
+      expect(find.byType(CircularProgressIndicator), findsNWidgets(2));
       expect(find.byType(LinearProgressIndicator), findsOneWidget);
     },
   );
@@ -1091,7 +1090,7 @@ void main() {
 
     expect(find.text('标题'), findsOneWidget);
     expect(find.text('内容'), findsOneWidget);
-    expect(find.byType(FDialog), findsOneWidget);
+    expect(find.byType(AlertDialog), findsOneWidget);
 
     await tester.pumpWidget(
       _app(
@@ -1205,11 +1204,34 @@ void main() {
       ),
     );
 
-    expect(find.byType(FCard), findsOneWidget);
-    expect(find.byType(FTile), findsOneWidget);
+    expect(find.byType(Card), findsOneWidget);
+    expect(find.byType(ListTile), findsOneWidget);
     await tester.tap(find.text('媒体库'));
     await tester.pump(const Duration(milliseconds: 150));
     expect(tapped, isTrue);
+  });
+
+  testWidgets('AppTile owns a Material surface inside decorated parents', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _app(
+        DecoratedBox(
+          decoration: const BoxDecoration(color: Colors.black),
+          child: AppTile(
+            title: const Text('Selected item'),
+            selected: true,
+            onPressed: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.ancestor(of: find.byType(ListTile), matching: find.byType(Material)),
+      findsWidgets,
+    );
   });
 
   testWidgets('AppInkSurface centralizes tappable material surfaces', (
@@ -1508,7 +1530,7 @@ void main() {
       _app(const AppAccordionItem(title: Text('事件分组'), child: Text('分组内容'))),
     );
 
-    expect(find.byType(FAccordion), findsOneWidget);
+    expect(find.byType(ExpansionTile), findsOneWidget);
     expect(find.text('事件分组'), findsOneWidget);
 
     await tester.tap(find.text('事件分组'));
@@ -1540,12 +1562,12 @@ void main() {
       ),
     );
 
-    expect(find.byType(FSwitch), findsOneWidget);
-    expect(find.byType(FCheckbox), findsOneWidget);
+    expect(find.byType(Switch), findsOneWidget);
+    expect(find.byType(Checkbox), findsOneWidget);
 
-    await tester.tap(find.text('启用'));
+    await tester.tap(find.byType(Switch));
     await tester.pump(const Duration(milliseconds: 150));
-    await tester.tap(find.text('选择'));
+    await tester.tap(find.byType(Checkbox));
     await tester.pump(const Duration(milliseconds: 150));
 
     expect(switchValue, isTrue);
@@ -1583,9 +1605,9 @@ void main() {
       ),
     );
 
-    expect(find.byType(FTile), findsNWidgets(2));
-    expect(find.byType(FSwitch), findsOneWidget);
-    expect(find.byType(FCheckbox), findsOneWidget);
+    expect(find.byType(ListTile), findsNWidgets(2));
+    expect(find.byType(Switch), findsOneWidget);
+    expect(find.byType(Checkbox), findsOneWidget);
 
     await tester.tap(find.text('通知'));
     await tester.pump(const Duration(milliseconds: 150));
@@ -1712,11 +1734,11 @@ void main() {
 
     expect(
       find.byKey(const ValueKey('provider-option-bilibili')),
-      findsOneWidget,
+      findsAtLeastNWidgets(1),
     );
     expect(
       find.byKey(const ValueKey('provider-option-youtube')),
-      findsOneWidget,
+      findsAtLeastNWidgets(1),
     );
   });
 
@@ -2121,7 +2143,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 150));
 
     expect(refreshes, 1);
-    expect(find.byType(FCircularProgress), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 
   testWidgets('AppLoadMoreFooter switches between action and loading', (
@@ -2142,7 +2164,7 @@ void main() {
       _app(const AppLoadMoreFooter(loading: true, onPressed: null)),
     );
 
-    expect(find.byType(FCircularProgress), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(find.text('加载更多'), findsNothing);
   });
 }

@@ -112,6 +112,9 @@ class SyncTvService {
 
   static Future<String?> getToken() => _runtime.getToken();
 
+  static Future<bool> refreshSessionAfterUnauthorized() =>
+      _runtime.refreshSessionAfterUnauthorized();
+
   static Future<Uri> createRoomWebSocketUri(String roomId) {
     return _runtime.createRoomWebSocketUri(roomId);
   }
@@ -827,6 +830,7 @@ class SyncTvService {
     String? description,
     String categoryId = '',
     List<String> labelIds = const [],
+    bool isPublic = true,
   }) async {
     final room = await _domains.publicRooms.createRoom(
       name,
@@ -834,6 +838,7 @@ class SyncTvService {
       description: description,
       categoryId: categoryId,
       labelIds: labelIds,
+      isPublic: isPublic,
     );
     _domains.cache.invalidatePrefix('account:rooms');
     return room;
@@ -1078,17 +1083,23 @@ class SyncTvService {
     source_enum.RtmpStreamMode mode,
   ) => _domains.providers.prepareRtmp(mode);
 
+  static Future<provider_common.PlaybackProxyPolicy> resolvePlaybackProxyPolicy(
+    provider_common.DiscoveredSource source,
+  ) => _domains.providers.resolvePlaybackProxyPolicy(source);
+
   static Future<RoomPlaylistItem> updatePlaylist(
     String roomId,
     String playlistId, {
     required String name,
     String? description,
+    source_config.PlaylistSourceConfig? sourceConfig,
   }) async {
     return _domains.roomMedia.updatePlaylist(
       roomId,
       playlistId,
       name: name,
       description: description,
+      sourceConfig: sourceConfig,
     );
   }
 
@@ -1156,12 +1167,14 @@ class SyncTvService {
     String mediaId, {
     required String name,
     String? description,
+    source_enum.PlaybackProxyMode? playbackProxyMode,
   }) async {
     return _domains.roomMedia.editMedia(
       roomId,
       mediaId,
       name: name,
       description: description,
+      playbackProxyMode: playbackProxyMode,
     );
   }
 
@@ -1569,9 +1582,16 @@ class SyncTvService {
 
   static Future<RtmpPublishKeyInfo> createRtmpPublishKeyInfo(
     String roomId,
-    String mediaId,
-  ) async {
-    return _domains.roomMedia.createRtmpPublishKeyInfo(roomId, mediaId);
+    String mediaId, {
+    required client.PublishKeyType keyType,
+    int? expiresAt,
+  }) async {
+    return _domains.roomMedia.createRtmpPublishKeyInfo(
+      roomId,
+      mediaId,
+      keyType: keyType,
+      expiresAt: expiresAt,
+    );
   }
 
   static Future<RoomStreamEntryInfo> getRtmpStreamInfo({
@@ -2680,6 +2700,19 @@ class SyncTvService {
     SyncTvRoomSettings settings,
   ) async {
     await _domains.roomManagement.updateRoomSettings(roomId, settings);
+  }
+
+  static Future<SyncTvRoom> updateRoomVisibility(
+    String roomId,
+    bool isPublic,
+  ) async {
+    final room = await _domains.roomManagement.updateRoomVisibility(
+      roomId,
+      isPublic,
+    );
+    _domains.cache.invalidatePrefix('account:rooms');
+    _domains.cache.invalidatePrefix('account:favorite-rooms');
+    return room;
   }
 
   static Future<void> updateRoomAutoPlay(

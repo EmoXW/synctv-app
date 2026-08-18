@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:synctv_app/core/config/distribution_profile.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media_dialog.dart';
-import 'package:synctv_app/features/media_library/presentation/add_media/playback_proxy_mode_control.dart';
 import 'package:synctv_app/l10n/l10n.dart';
 import 'package:synctv_app/src/generated/proto/source_config.pbenum.dart'
     as source_enum;
@@ -13,7 +12,7 @@ import 'package:synctv_app/src/generated/proto/source_config.pbenum.dart'
 import '../../../test_app.dart';
 
 void main() {
-  testWidgets('proxy-only playback locks proxy preference on', (tester) async {
+  testWidgets('direct links wait for a resolved source policy', (tester) async {
     tester.view.physicalSize = const ui.Size(800, 700);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -29,16 +28,8 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.text('Proxy only'));
-    await tester.pump();
-
-    final control = tester.widget<PlaybackProxyModeControl>(
-      find.byType(PlaybackProxyModeControl),
-    );
-    expect(
-      control.value,
-      source_enum.PlaybackProxyMode.PLAYBACK_PROXY_MODE_ONLY,
-    );
+    expect(find.byKey(const Key('playback-proxy-mode')), findsNothing);
+    expect(find.byKey(const Key('playback-proxy-mode-dropdown')), findsNothing);
     await tester.pump(const Duration(seconds: 4));
   });
 
@@ -57,7 +48,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.text('Emby library').first);
+    await tester.tap(find.byKey(const ValueKey('add-media-source-tile-5')));
     await tester.pump();
 
     expect(find.text('Manage connections'), findsOneWidget);
@@ -109,6 +100,99 @@ void main() {
     expect(playbackKindControl.selected, {
       source_enum.PlaybackKind.PLAYBACK_KIND_LIVE,
     });
+    expect(tester.takeException(), isNull);
+
+    await tester.pump(const Duration(seconds: 4));
+  });
+
+  testWidgets('desktop workspace filters media sources', (tester) async {
+    tester.view.physicalSize = const ui.Size(1300, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        builder: buildThemedTestApp,
+        home: const Scaffold(body: AddMediaDialog(roomId: 'room_layout_test')),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Bilibili'), findsWidgets);
+    await tester.enterText(find.byType(TextField).first, 'FNOS');
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('add-media-source-tile-12')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('add-media-source-tile-3')), findsNothing);
+    expect(tester.takeException(), isNull);
+
+    await tester.pump(const Duration(seconds: 4));
+  });
+
+  testWidgets('source rail uses stable icon and detail widths', (tester) async {
+    tester.view.physicalSize = const ui.Size(1300, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        builder: buildThemedTestApp,
+        home: const Scaffold(body: AddMediaDialog(roomId: 'room_layout_test')),
+      ),
+    );
+    await tester.pump();
+
+    final railItem = find.byKey(const ValueKey('add-media-source-tile-3'));
+    expect(tester.getSize(railItem).width, greaterThan(180));
+    expect(find.text('Bilibili'), findsWidgets);
+
+    tester.view.physicalSize = const ui.Size(980, 800);
+    await tester.pump();
+
+    expect(tester.getSize(railItem).width, lessThan(60));
+    expect(find.text('Bilibili'), findsNothing);
+    expect(tester.takeException(), isNull);
+
+    await tester.pump(const Duration(seconds: 4));
+  });
+
+  testWidgets('keeps a direct-link draft while switching sources', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const ui.Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        builder: buildThemedTestApp,
+        home: const Scaffold(body: AddMediaDialog(roomId: 'room_layout_test')),
+      ),
+    );
+    await tester.pump();
+
+    await tester.enterText(
+      find.byType(TextField).at(1),
+      'https://media.test/a',
+    );
+    await tester.tap(find.byKey(const ValueKey('add-media-source-tile-1')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('add-media-source-tile-0')));
+    await tester.pump();
+
+    expect(find.text('https://media.test/a'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await tester.pump(const Duration(seconds: 4));

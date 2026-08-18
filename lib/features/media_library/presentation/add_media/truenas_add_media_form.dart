@@ -8,6 +8,7 @@ import 'package:synctv_app/core/presentation/widgets/app_form_controls.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media/discovery_browser.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media/provider_account_action.dart';
 import 'package:synctv_app/features/media_library/presentation/add_media/playback_proxy_mode_control.dart';
+import 'package:synctv_app/features/media_library/presentation/add_media/provider_workspace.dart';
 import 'package:synctv_app/src/generated/proto/providers/common.pb.dart'
     as provider_common;
 import 'package:synctv_app/src/generated/proto/source_config.pbenum.dart'
@@ -57,6 +58,9 @@ class _TrueNasAddMediaFormState extends State<TrueNasAddMediaForm> {
   provider_common.DiscoveredSource? _listSource;
   source_enum.PlaybackProxyMode _proxyMode =
       source_enum.PlaybackProxyMode.PLAYBACK_PROXY_MODE_AUTO;
+
+  provider_common.DiscoveredSource? get _playbackPolicySource =>
+      _selection.entries.firstOrNull?.source ?? _listSource;
 
   @override
   void initState() {
@@ -109,7 +113,7 @@ class _TrueNasAddMediaFormState extends State<TrueNasAddMediaForm> {
         ),
       );
     }
-    return Column(
+    final controls = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         ProviderAccountSelector<TrueNasBindInfo>(
@@ -133,6 +137,7 @@ class _TrueNasAddMediaFormState extends State<TrueNasAddMediaForm> {
         const SizedBox(height: 10),
         PlaybackProxyModeControl(
           value: _proxyMode,
+          source: _playbackPolicySource,
           onChanged: (value) => setState(() => _proxyMode = value),
         ),
         const SizedBox(height: 10),
@@ -161,6 +166,10 @@ class _TrueNasAddMediaFormState extends State<TrueNasAddMediaForm> {
           ),
         ),
         const SizedBox(height: 8),
+      ],
+    );
+    final results = Column(
+      children: [
         if (_loading) const AppLinearProgress(minHeight: 2),
         Expanded(child: _fileList()),
         Row(
@@ -185,6 +194,7 @@ class _TrueNasAddMediaFormState extends State<TrueNasAddMediaForm> {
         ),
       ],
     );
+    return ProviderWorkspace(controls: controls, results: results);
   }
 
   Widget _breadcrumbs() {
@@ -218,7 +228,8 @@ class _TrueNasAddMediaFormState extends State<TrueNasAddMediaForm> {
     final itemsByKey = {for (final item in _items) item.path: item};
     return DiscoveryBrowser(
       selectionController: _selection,
-      selectionScope: _bind?.id,
+      selectionScope: '${_bind?.id}:$_path',
+      onSelectionChanged: () => setState(() {}),
       items: [
         for (final item in _items)
           DiscoveryBrowserEntry(
@@ -265,7 +276,11 @@ class _TrueNasAddMediaFormState extends State<TrueNasAddMediaForm> {
   Future<void> _load({int? page}) async {
     final bind = _bind;
     if (bind == null || _loading) return;
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _selection.clear();
+      _listSource = null;
+    });
     try {
       final result = await (widget.pageLoader ?? _defaultLoader)(
         bind,

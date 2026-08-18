@@ -41,7 +41,6 @@ import 'package:synctv_app/src/generated/proto/providers/synology.pb.dart'
     as synology;
 import 'package:synctv_app/src/generated/proto/providers/truenas.pb.dart'
     as truenas;
-import 'package:synctv_app/src/generated/proto/providers/rtmp.pb.dart' as rtmp;
 import 'package:synctv_app/src/generated/proto/providers/twitch.pb.dart'
     as twitch;
 import 'package:synctv_app/src/generated/proto/providers/huya.pb.dart' as huya;
@@ -253,7 +252,6 @@ class SyncTvApiClient {
       SyncTvCloudreveProviderApi._(this);
   late final SyncTvBilibiliProviderApi bilibiliProvider =
       SyncTvBilibiliProviderApi._(this);
-  late final SyncTvRtmpProviderApi rtmpProvider = SyncTvRtmpProviderApi._(this);
   late final SyncTvTwitchProviderApi twitchProvider = SyncTvTwitchProviderApi._(
     this,
   );
@@ -1322,6 +1320,10 @@ class SyncTvApiClient {
         'containers': profile.supportedContainers
             .map((container) => container.value)
             .join(','),
+      if (profile.supportedLiveTransports.isNotEmpty)
+        'liveTransports': profile.supportedLiveTransports
+            .map((transport) => transport.value)
+            .join(','),
       if (profile.hasAudioCapability())
         'audioCapability': profile.audioCapability.value.toString(),
       if (profile.hasSubtitlePreference())
@@ -1473,6 +1475,7 @@ extension SyncTvModelMapping on SyncTvApiClient {
           : room.memberCount,
       connectionCount: room.hasPresence() ? room.presence.connectionCount : 0,
       memberCount: room.memberCount,
+      isPublic: room.hasIsPublic() ? room.isPublic : true,
       creator: room.creatorUsername,
       creatorId: room.creatorId,
       creatorAvatarUrl: resolveResourceUrl(room.creatorAvatarUrl),
@@ -1503,6 +1506,7 @@ extension SyncTvModelMapping on SyncTvApiClient {
           : room.memberCount,
       connectionCount: room.hasPresence() ? room.presence.connectionCount : 0,
       memberCount: room.memberCount,
+      isPublic: room.hasIsPublic() ? room.isPublic : true,
       creator: room.hasCreator() ? room.creator.username : '',
       creatorId: room.hasCreator() ? room.creator.id : room.createdBy,
       creatorAvatarUrl: resolveResourceUrl(
